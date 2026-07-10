@@ -1,0 +1,8 @@
+{
+  "emailTaken": "Email già registrata",
+  "invalidCredentials": "Credenziali non valide",
+  "accountDisabled": "Account disabilitato. Contatta un amministratore.",
+  "notFound": "Risorsa non trovata",
+  "forbidden": "Non hai accesso a questa risorsa",
+  "unauthorized": "Non autenticato"
+}
