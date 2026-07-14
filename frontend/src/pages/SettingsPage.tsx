@@ -3393,6 +3393,7 @@ function VectorCollectionsCard() {
   const [formName, setFormName]   = useState('');
   const [formDesc, setFormDesc]   = useState('');
   const [formDefault, setFormDefault] = useState(false);
+  const [formCreateTool, setFormCreateTool] = useState(true);
   const [formMsg, setFormMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   const openCreate = () => {
@@ -3400,6 +3401,7 @@ function VectorCollectionsCard() {
     setFormName('');
     setFormDesc('');
     setFormDefault(collections.length === 0);
+    setFormCreateTool(true);
     setFormMsg(null);
     setShowForm(true);
   };
@@ -3418,7 +3420,7 @@ function VectorCollectionsCard() {
   const saveMutation = useMutation({
     mutationFn: () => editingId
       ? vectorDbApi.updateCollection(editingId, { name: formName.trim(), description: formDesc.trim() || null, isDefault: formDefault })
-      : vectorDbApi.createCollection({ name: formName.trim(), description: formDesc.trim() || null, isDefault: formDefault }),
+      : vectorDbApi.createCollection({ name: formName.trim(), description: formDesc.trim() || null, isDefault: formDefault, createSearchTool: formCreateTool }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['vector-collections'] });
       setFormMsg({ ok: true, text: editingId ? t('vectordb.collectionUpdatedOk') : t('vectordb.collectionCreatedOk') });
@@ -3534,6 +3536,23 @@ function VectorCollectionsCard() {
             />
             <span className="text-sm text-gray-300">{t('vectordb.collectionSetDefault')}</span>
           </label>
+
+          {/* Auto search tool: only on creation — an existing collection may already have its tool */}
+          {!editingId && (
+            <label className="flex items-start gap-2 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={formCreateTool}
+                onChange={(e) => setFormCreateTool(e.target.checked)}
+                className="w-4 h-4 mt-0.5 rounded border-gray-600 bg-gray-700 text-indigo-500
+                  focus:ring-indigo-500 focus:ring-offset-0"
+              />
+              <span className="text-sm text-gray-300">
+                {t('vectordb.collectionCreateSearchTool')}
+                <span className="block text-xs text-gray-500">{t('vectordb.collectionCreateSearchToolHint')}</span>
+              </span>
+            </label>
+          )}
 
           <div className="flex items-center justify-between pt-1">
             {formMsg && (
@@ -4155,6 +4174,13 @@ function EmbeddingConfigCard() {
                 text-gray-100 placeholder-gray-600 focus:outline-none focus:border-blue-500
                 transition-colors font-mono"
             />
+            {/* An empty field is not "no prefix" for the internal service: there the model
+                declares its own query prompt. Say so, otherwise the field reads as unset. */}
+            <p className="text-xs text-gray-600 mt-1">
+              {provider === 'internal'
+                ? t('vectordb.embeddingQueryPrefixHintInternal')
+                : t('vectordb.embeddingQueryPrefixHint')}
+            </p>
           </div>
         </div>
       </div>

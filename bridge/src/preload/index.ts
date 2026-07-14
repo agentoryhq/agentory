@@ -29,6 +29,9 @@ export interface BridgeAPI {
   getAutostart: () => Promise<boolean>
   setAutostart: (enabled: boolean) => Promise<{ success: boolean }>
 
+  // Per-tool enable/disable of an MCP server
+  setToolEnabled: (serverId: string, toolName: string, enabled: boolean) => Promise<{ success: boolean }>
+
   // Deps
   checkDeps: () => Promise<DepResult[]>
 
@@ -44,8 +47,12 @@ export interface ServerState {
   status: 'starting' | 'running' | 'stopped' | 'error'
   pid?: number
   error?: string
+  /** Tools actually exposed to the agent (total minus the disabled ones). */
   toolsCount: number
+  /** Every tool the MCP server declares, disabled ones included. */
   tools: Array<{ name: string; description: string; inputSchema: Record<string, unknown> }>
+  /** Names the user turned off: not exposed to the agent, not callable. */
+  disabledTools: string[]
 }
 
 export interface LogEntry {
@@ -72,6 +79,9 @@ const bridgeAPI: BridgeAPI = {
 
   getAutostart: () => ipcRenderer.invoke('get-autostart'),
   setAutostart: (enabled) => ipcRenderer.invoke('set-autostart', enabled),
+
+  setToolEnabled: (serverId, toolName, enabled) =>
+    ipcRenderer.invoke('set-tool-enabled', serverId, toolName, enabled),
 
   checkDeps: () => ipcRenderer.invoke('check-deps'),
 

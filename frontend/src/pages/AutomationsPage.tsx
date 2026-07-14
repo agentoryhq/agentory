@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { CalendarClock, Trash2, Loader2, X, CheckCircle2, XCircle, Clock } from 'lucide-react';
+import { CalendarClock, Trash2, Loader2, X, CheckCircle2, XCircle, Clock, Play } from 'lucide-react';
 import { scheduledTasksApi, type ScheduledTask } from '../api/scheduledTasks';
 
 /**
@@ -12,6 +12,7 @@ export function AutomationsSection() {
   const { t } = useTranslation('automations');
   const qc = useQueryClient();
   const [err, setErr] = useState<string | null>(null);
+  const [info, setInfo] = useState<string | null>(null);
   const query = useQuery({ queryKey: ['scheduled-tasks'], queryFn: scheduledTasksApi.list, staleTime: 5_000 });
   const invalidate = () => qc.invalidateQueries({ queryKey: ['scheduled-tasks'] });
 
@@ -29,6 +30,13 @@ export function AutomationsSection() {
     mutationFn: (id: string) => scheduledTasksApi.activate(id),
     onSuccess: invalidate,
     onError: (e: any) => setErr(e?.response?.data?.message ?? t('errors.activationFailed')),
+  });
+  // "Run now": the run is asynchronous (same worker as a scheduled fire) — the outcome
+  // arrives as a notification and in chat, so here we only confirm it was started.
+  const runM = useMutation({
+    mutationFn: (id: string) => scheduledTasksApi.runNow(id),
+    onSuccess: () => { setErr(null); setInfo(t('info.runStarted')); invalidate(); },
+    onError: (e: any) => setErr(e?.response?.data?.message ?? t('errors.runFailed')),
   });
 
   const tasks = query.data ?? [];
@@ -50,6 +58,12 @@ export function AutomationsSection() {
       {err && (
         <div className="flex items-center justify-between gap-3 bg-red-950/50 border border-red-900 text-red-300 text-sm rounded-lg px-3 py-2 mb-3">
           <span>{err}</span><button onClick={() => setErr(null)}><X size={14} /></button>
+        </div>
+      )}
+
+      {info && (
+        <div className="flex items-center justify-between gap-3 bg-indigo-950/50 border border-indigo-900 text-indigo-300 text-sm rounded-lg px-3 py-2 mb-3">
+          <span>{info}</span><button onClick={() => setInfo(null)}><X size={14} /></button>
         </div>
       )}
 
@@ -81,11 +95,20 @@ export function AutomationsSection() {
                     {task.totalTokens > 0 && <span className="text-gray-600"> · {t('info.totalTokens', { count: task.totalTokens.toLocaleString() })}</span>}
                     <span className="text-gray-600"> · {t('info.toolLabel')}: {task.toolFilter?.mode === 'none' || !task.toolFilter ? t('info.toolNone') : task.toolFilter.mode === 'all' ? t('info.toolAll') : (task.toolFilter.names ?? []).join(', ') || '—'}</span>
                   </div>
+                  {/* bg-gray-800/50, not gray-900/40: only some opacity steps are remapped
+                      in the light theme, the others stay dark (see index.css). */}
                   {task.lastResult && (
-                    <pre className="text-[11px] text-gray-400 mt-2 whitespace-pre-wrap break-words max-h-24 overflow-y-auto border border-gray-800 rounded p-2 bg-gray-900/40">{task.lastResult}</pre>
+                    <pre className="text-[11px] text-gray-400 mt-2 whitespace-pre-wrap break-words max-h-24 overflow-y-auto border border-gray-800 rounded p-2 bg-gray-800/50">{task.lastResult}</pre>
                   )}
                 </div>
                 <div className="flex items-center gap-3 flex-shrink-0">
+                  <button title={t('actions.runNow')} className="text-gray-500 hover:text-indigo-400 disabled:opacity-50"
+                    disabled={runM.isPending && runM.variables === task.id}
+                    onClick={() => runM.mutate(task.id)}>
+                    {runM.isPending && runM.variables === task.id
+                      ? <Loader2 size={15} className="animate-spin" />
+                      : <Play size={15} />}
+                  </button>
                   {task.status === 'pending' ? (
                     <button onClick={() => activateM.mutate(task.id)}
                       className="text-xs px-2.5 py-1 rounded-md bg-emerald-700 hover:bg-emerald-600 text-white">{t('actions.activate')}</button>

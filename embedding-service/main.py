@@ -37,6 +37,13 @@ class EmbedRequest(BaseModel):
     input:      Union[str, list[str]]
     model:      str       = MODEL_NAME
     dimensions: int | None = None
+    # Extension to the OpenAI schema (ignored by other providers): retrieval models are
+    # asymmetric — the query is embedded with an instruction, the indexed document without.
+    # The instruction is NOT hardcoded here: it is the one the model itself declares
+    # (config_sentence_transformers.json → prompts), so any model that ships one gets it
+    # right and any model that doesn't is left untouched. The caller marks the side; the
+    # default is 'document', i.e. no prompt, which is also the pre-existing behaviour.
+    input_type: str | None = None    # "query" | "document"
 
 
 class EmbeddingObject(BaseModel):
@@ -68,18 +75,24 @@ async def create_embeddings(req: EmbedRequest):
     if not texts:
         raise HTTPException(status_code=400, detail="Empty input")
 
+    # Prompt of the requested side, only if the loaded model declares one (empty otherwise).
+    prompt_name = req.input_type if req.input_type in (model.prompts or {}) else None
+    prompt = (model.prompts or {}).get(prompt_name or "", "")
+
     t0 = time.perf_counter()
+    side = f" [{req.input_type}{' + prompt' if prompt else ''}]" if req.input_type else ""
     if len(texts) == 1:
         preview = texts[0][:80].replace("\n", " ")
-        logger.info(f"embed: \"{preview}{'…' if len(texts[0]) > 80 else ''}\"")
+        logger.info(f"embed{side}: \"{preview}{'…' if len(texts[0]) > 80 else ''}\"")
     else:
-        logger.info(f"embed batch: {len(texts)} texts")
+        logger.info(f"embed batch{side}: {len(texts)} texts")
 
     embeddings = model.encode(
         texts,
         batch_size=BATCH_SIZE,
         normalize_embeddings=True,
         convert_to_numpy=True,
+        **({"prompt_name": prompt_name} if prompt else {}),
     )
 
     if req.dimensions and req.dimensions < embeddings.shape[1]:

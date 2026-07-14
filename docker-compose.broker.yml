@@ -57,7 +57,12 @@ services:
       BROKER_ALLOWED_NETWORKS: agentory-internal,${SANDBOX_OPEN_NETWORK:-bridge},${JOB_EGRESS_NETWORK:-},${BROKER_ALLOWED_NETWORKS:-}
       BROKER_ALLOW_RUNSC: ${BROKER_ALLOW_RUNSC:-0}          # 1 = allow runtime=runsc (gVisor)
       BROKER_ALLOW_PRIVILEGED_SANDBOX: ${BROKER_ALLOW_PRIVILEGED_SANDBOX:-0}  # 1 = allow the 'trusted' sandbox profile (writable rootfs + root); off → forces hardened
-      BROKER_NIX_STORE: ${BROKER_NIX_STORE:-}               # host path of the /nix store (system.nix skills)
+      # Nix store shared into system.nix jobs. Default: the executor's own `nix_store`
+      # named volume (project-prefixed → agentory_nix_store), mounted /nix:ro in each job
+      # by name. This is the SAME store the executor installs into, so no second store and
+      # no host-path guessing. Override with BROKER_NIX_STORE (host path) for a real host Nix.
+      BROKER_NIX_VOLUME: ${BROKER_NIX_VOLUME:-agentory_nix_store}
+      BROKER_NIX_STORE: ${BROKER_NIX_STORE:-}               # host path of the /nix store (alternative to the volume)
       JOB_MEMORY: ${JOB_MEMORY:-256m}
       JOB_PIDS: ${JOB_PIDS:-128}
       JOB_TIMEOUT_MS: ${JOB_TIMEOUT_MS:-120000}

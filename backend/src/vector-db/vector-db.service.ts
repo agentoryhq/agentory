@@ -7,6 +7,7 @@ import {
   OnModuleInit,
 } from '@nestjs/common';
 import { I18nContext } from 'nestjs-i18n';
+import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { VectorDbConfigEntity } from './vector-db-config.entity';
@@ -15,6 +16,12 @@ import type { VectorDbProvider } from './vector-store.types';
 import { encrypt } from '../custom-tools/crypto.utils';
 
 const CONFIG_ID = 1;
+
+/**
+ * URL the migration seeds the singleton row with (bare-metal default). Recognising it lets
+ * the boot realign a row nobody ever configured to the Qdrant of the current deployment.
+ */
+const SEEDED_QDRANT_URL = 'http://localhost:6333';
 
 export interface UpdateVectorDbConfigDto {
   provider:          VectorDbProvider;
@@ -40,11 +47,25 @@ export class VectorDbService implements OnModuleInit {
     private readonly configRepo: Repository<VectorDbConfigEntity>,
     @InjectRepository(VectorCollectionEntity)
     private readonly collectionRepo: Repository<VectorCollectionEntity>,
+    private readonly cfg: ConfigService,
   ) {}
 
   /**
-   * At boot: if the vector_db_config table is empty, create the singleton row
-   * with self-hosted Qdrant as default.
+   * Default Qdrant URL for the seeded singleton row: QDRANT_URL env var,
+   * so the seed works both in Docker (http://qdrant:6333) and bare dev.
+   */
+  private defaultQdrantUrl(): string {
+    return this.cfg.get<string>('QDRANT_URL', 'http://localhost:6333');
+  }
+
+  /**
+   * At boot: make sure the singleton row points at the Qdrant of THIS deployment.
+   *
+   * Creating it when missing is not enough: the migration seeds the row with the bare-metal
+   * default (http://localhost:6333), so in Docker the row already exists and points the
+   * backend at itself → every collection op dies with "fetch failed". So we also heal a row
+   * that still carries that untouched default while QDRANT_URL says otherwise (Docker:
+   * http://qdrant:6333). A URL the admin actually chose is never overwritten.
    */
   async onModuleInit(): Promise<void> {
     const existing = await this.configRepo.findOne({ where: { id: CONFIG_ID } });
@@ -52,9 +73,17 @@ export class VectorDbService implements OnModuleInit {
       await this.configRepo.save({
         id:       CONFIG_ID,
         provider: 'qdrant',
-        url:      'http://localhost:6333',
+        url:      this.defaultQdrantUrl(),
       });
       this.logger.log('VectorDbConfig: singleton row created (provider=qdrant)');
+      return;
+    }
+
+    const envUrl = this.defaultQdrantUrl();
+    const untouchedDefault = existing.provider === 'qdrant' && existing.url === SEEDED_QDRANT_URL;
+    if (untouchedDefault && envUrl !== SEEDED_QDRANT_URL) {
+      await this.configRepo.update({ id: CONFIG_ID }, { url: envUrl });
+      this.logger.log(`VectorDbConfig: seeded URL realigned to the deployment (${envUrl})`);
     }
   }
 
@@ -65,7 +94,7 @@ export class VectorDbService implements OnModuleInit {
     const cfg = await this.configRepo.findOne({ where: { id: CONFIG_ID } });
     if (!cfg) {
       const created = await this.configRepo.save({
-        id: CONFIG_ID, provider: 'qdrant', url: 'http://localhost:6333',
+        id: CONFIG_ID, provider: 'qdrant', url: this.defaultQdrantUrl(),
       });
       return { ...created, hasApiKey: false };
     }

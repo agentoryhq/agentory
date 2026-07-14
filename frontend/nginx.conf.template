@@ -3,6 +3,13 @@ server {
   root /usr/share/nginx/html;
   index index.html;
 
+  # Max upload size (multipart to /api/files/upload, skill ZIPs, audio).
+  # ${MAX_UPLOAD_MB} is substituted at container start by the nginx image's
+  # envsubst entrypoint (this file lives in /etc/nginx/templates/); nginx
+  # runtime vars like $host are NOT in the environment, so they survive as-is.
+  # Keep in sync with the backend Multer limit, driven by the same env var.
+  client_max_body_size ${MAX_UPLOAD_MB}m;
+
   # Proxy API to backend
   location /api {
     proxy_pass http://backend:3000;

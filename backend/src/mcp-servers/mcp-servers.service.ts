@@ -21,6 +21,8 @@
  * the available tools. The service keeps them in an in-memory Map.
  */
 import {BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException, OnModuleDestroy,} from '@nestjs/common';
+import {promises as fsp} from 'fs';
+import {join, resolve} from 'path';
 import {InjectRepository} from '@nestjs/typeorm';
 import {Repository} from 'typeorm';
 import {DynamicStructuredTool} from '@langchain/core/tools';
@@ -355,7 +357,8 @@ export class McpServersService implements OnModuleDestroy {
               func: async (args: Record<string, unknown>) => {
                 this.logger.log(`MCP ${server.transport} "${toolName}": ${JSON.stringify(args).slice(0, 200)}`);
                 try {
-                  return await this.callRemoteMcpTool(server, secrets, mcpTool.name, args);
+                  const raw = await this.callRemoteMcpTool(server, secrets, mcpTool.name, args);
+                  return await this.sanitizeMcpResult(raw, userId);
                 } catch (err: any) {
                   this.logger.error(`MCP "${toolName}" error: ${err.message}`);
                   return `MCP error: ${err.message}`;
@@ -385,7 +388,7 @@ export class McpServersService implements OnModuleDestroy {
                   return `Local MCP server not running (status: ${procRef.status}). Check the backend logs.`;
                 }
                 try {
-                  return await procRef.callTool(mcpTool.name, args);
+                  return await this.sanitizeMcpResult(await procRef.callTool(mcpTool.name, args), userId);
                 } catch (err: any) {
                   this.logger.error(`MCP local "${toolName}" error: ${err.message}`);
                   return `Local MCP error: ${err.message}`;
@@ -416,7 +419,9 @@ export class McpServersService implements OnModuleDestroy {
                   return 'Bridge not connected. Start the Electron bridge to use remote servers.';
                 }
                 try {
-                  return await bridgeSession.callTool(server.id, mcpTool.name, args);
+                  return await this.sanitizeMcpResult(
+                    await bridgeSession.callTool(server.id, mcpTool.name, args), userId,
+                  );
                 } catch (err: any) {
                   return `Bridge error: ${err.message}`;
                 }
@@ -546,6 +551,90 @@ export class McpServersService implements OnModuleDestroy {
   /**
    * Calls a tool on a remote MCP server (http/sse).
    */
+  // ── MCP result sanitization ──────────────────────────────────────────────
+
+  /** Cap on the MCP result text returned to the LLM (guards the context). */
+  private static readonly MCP_RESULT_MAX_CHARS = 20_000;
+
+  /**
+   * Renders MCP content blocks into LLM-safe text: text blocks pass through,
+   * image blocks are saved as per-user files and replaced with a download
+   * link, anything else is stringified with a hard cap. Keeps base64 blobs
+   * out of the model context and of the persisted toolCalls.
+   */
+  private async renderMcpContent(content: any[], userId: string): Promise<string> {
+    const parts: string[] = [];
+    for (const b of content) {
+      if (b?.type === 'text' && typeof b.text === 'string') {
+        parts.push(b.text);
+      } else if (b?.type === 'image' && typeof b.data === 'string') {
+        parts.push(await this.saveMcpImage(b.data, b.mimeType, userId));
+      } else if (b != null) {
+        parts.push(JSON.stringify(b).slice(0, 500));
+      }
+    }
+    return parts.join('\n');
+  }
+
+  /** MCP content block types (spec): anything else is not a block list. */
+  private static readonly MCP_BLOCK_TYPES = ['text', 'image', 'audio', 'resource', 'resource_link'];
+
+  /**
+   * True only for a genuine MCP content-block array. A tool may legitimately
+   * return JSON with its OWN `content` array (records, rows, documents): that
+   * payload must pass through untouched, not be rendered as blocks (which would
+   * silently truncate each element).
+   */
+  private isMcpContentBlocks(value: unknown): value is any[] {
+    return Array.isArray(value) && value.length > 0 && value.every(
+      (b: any) => b != null && McpServersService.MCP_BLOCK_TYPES.includes(b.type),
+    );
+  }
+
+  /**
+   * Safety net applied to every MCP tool result, whatever the transport:
+   * extracts the content blocks from stringified results (bridge/local
+   * pre-serialize them), strips residual base64 runs and caps the length.
+   */
+  private async sanitizeMcpResult(raw: string, userId: string): Promise<string> {
+    let text = raw ?? '';
+    try {
+      const parsed = JSON.parse(text);
+      const content = Array.isArray(parsed) ? parsed : parsed?.content;
+      if (this.isMcpContentBlocks(content)) text = await this.renderMcpContent(content, userId);
+    } catch { /* plain text — keep as is */ }
+    // Residual base64 runs (inside JSON or free text) never reach the LLM.
+    text = text.replace(/[A-Za-z0-9+/=]{2048,}/g, '[binary data omitted]');
+    const max = McpServersService.MCP_RESULT_MAX_CHARS;
+    return text.length > max
+      ? `${text.slice(0, max)}… [truncated — ${text.length} chars total]`
+      : text;
+  }
+
+  /**
+   * Saves a base64 image from an MCP result and returns a Markdown link to it.
+   *
+   * The file goes FLAT into the caller's own output dir — the same per-user root
+   * and layout as the skill outputs — because that is what the message pipeline
+   * tracks: it resolves a `?rel=` back to `<SKILLS_OUTPUT_DIR>/<userId>/<name>`,
+   * registers the file (access-aware download by id) and attaches it to the
+   * assistant message. In a subdir the file exists but no chip/attachment is
+   * produced, so the image is unreachable from the chat.
+   */
+  private async saveMcpImage(b64: string, mimeType: string | undefined, userId: string): Promise<string> {
+    try {
+      const ext  = (mimeType?.split('/')[1] ?? 'png').replace(/[^a-z0-9]/gi, '') || 'png';
+      const dir  = resolve(join(process.env.SKILLS_OUTPUT_DIR ?? './uploads/skills-output', userId || '_shared'));
+      await fsp.mkdir(dir, { recursive: true });
+      const name = `mcp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+      await fsp.writeFile(join(dir, name), Buffer.from(b64, 'base64'));
+      return `[${name}](/api/files/raw?rel=${encodeURIComponent(name)})`;
+    } catch (err: any) {
+      this.logger.warn(`MCP image not saved: ${err.message}`);
+      return '[image omitted]';
+    }
+  }
+
   private async callRemoteMcpTool(
     server: McpServer,
     secrets: Record<string, string>,
@@ -595,12 +684,11 @@ export class McpServersService implements OnModuleDestroy {
     const result = data.result;
     if (!result) return 'No result';
 
-    // The MCP result is an array of content blocks
+    // The MCP result is an array of content blocks: return it structured, the
+    // caller sanitizes it (text extracted, images saved as per-user files —
+    // the old text-only join silently dropped image blocks).
     if (Array.isArray(result.content)) {
-      return result.content
-        .filter((b: any) => b.type === 'text')
-        .map((b: any) => b.text)
-        .join('\n') || JSON.stringify(result.content);
+      return JSON.stringify({ content: result.content });
     }
 
     return typeof result === 'string' ? result : JSON.stringify(result, null, 2);

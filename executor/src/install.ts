@@ -141,7 +141,12 @@ export async function installSkillDeps(req: InstallRequest): Promise<InstallResu
         installLog += warn + '\n';
       } else {
         const profileDir = path.join(skillDir, '.nix');
-        fs.mkdirSync(profileDir, { recursive: true });
+        // nix creates the profile as a SYMLINK at profileDir. It must NOT pre-exist as a
+        // directory — nix readlink()s it and fails with EINVAL ("reading symbolic link …:
+        // Invalid argument") on nix 2.34+. Ensure the PARENT exists and clear any stale
+        // profile path (leftover dir from this bug, or an old symlink) so nix owns it.
+        fs.mkdirSync(skillDir, { recursive: true });
+        fs.rmSync(profileDir, { recursive: true, force: true });
 
         log.info(`installing Nix deps → ${profileDir}`);
         log.info(`  packages: ${nix_deps.join(', ')}`);

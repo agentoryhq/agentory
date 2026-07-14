@@ -3,6 +3,7 @@
  *
  * REST for **automations** (Auto-Scheduling).
  *   GET    /api/scheduled-tasks            → my automations
+ *   POST   /api/scheduled-tasks/:id/run     → run now, out of schedule
  *   PATCH  /api/scheduled-tasks/:id/enabled → enable/disable
  *   DELETE /api/scheduled-tasks/:id        → delete
  */
@@ -37,6 +38,13 @@ export class SchedulingController {
   @ApiOperation({ summary: 'Attiva un\'automazione in attesa di conferma' })
   activate(@Param('id') id: string, @CurrentUser() user: any) {
     return this.service.activate(id, user.id);
+  }
+
+  @Post(':id/run')
+  @HttpCode(HttpStatus.ACCEPTED)
+  @ApiOperation({ summary: 'Esegue subito l\'automazione, fuori programmazione' })
+  run(@Param('id') id: string, @CurrentUser() user: any) {
+    return this.service.runNow(id, user.id);
   }
 
   @Patch(':id/enabled')

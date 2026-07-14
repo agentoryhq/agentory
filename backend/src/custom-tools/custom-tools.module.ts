@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { CustomTool } from './custom-tool.entity';
 import { ToolSecret } from './tool-secret.entity';
@@ -14,8 +14,11 @@ import { TeamsModule } from '../teams/teams.module';
   imports: [
     TypeOrmModule.forFeature([CustomTool, ToolSecret]),
     DataSourcesModule,
-    EmbedModule,       // provides EmbeddingProviderService
-    VectorDbModule,    // provides VectorStoreProviderService
+    // forwardRef on both: VectorDbModule now imports CustomToolsModule (auto
+    // search tool), so Embed → VectorDb → CustomTools → Embed is a JS module
+    // cycle and these classes can be undefined at decorator-evaluation time.
+    forwardRef(() => EmbedModule),      // provides EmbeddingProviderService
+    forwardRef(() => VectorDbModule),   // provides VectorStoreProviderService
     AppConfigModule,   // provides AppConfigService (API key for the Prompt executor)
     TeamsModule,       // provides TeamsService (team scoping)
   ],

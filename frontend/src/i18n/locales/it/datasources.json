@@ -39,6 +39,7 @@
     "sectionConnection": "Connessione",
     "sectionSchema": "Schema",
     "closeSaved": "Chiudi",
+    "unsavedSchemaConfirm": "Hai modifiche allo schema non salvate (tabelle/colonne nascoste, commenti, relazioni). Chiudendo andranno perse. Vuoi chiudere lo stesso?",
     "saving": "Salvataggio…",
     "saveChanges": "Salva modifiche",
     "createSource": "Crea sorgente",

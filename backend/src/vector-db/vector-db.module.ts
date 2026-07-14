@@ -6,12 +6,14 @@ import { VectorDbService } from './vector-db.service';
 import { VectorDbController } from './vector-db.controller';
 import { VectorStoreProviderService } from './vector-store-provider.service';
 import { EmbedModule } from '../embed/embed.module';
+import { CustomToolsModule } from '../custom-tools/custom-tools.module';
 import { InternalVectorController } from './internal-vector.controller';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([VectorDbConfigEntity, VectorCollectionEntity]),
-    forwardRef(() => EmbedModule),   // rompe il ciclo VectorDb ↔ Embed
+    forwardRef(() => EmbedModule),        // breaks the VectorDb ↔ Embed cycle
+    forwardRef(() => CustomToolsModule),  // breaks the VectorDb ↔ CustomTools cycle (auto search tool)
   ],
   providers: [VectorDbService, VectorStoreProviderService],
   controllers: [VectorDbController, InternalVectorController],

@@ -63,6 +63,7 @@ function ServerCard({
   }
 
   const cfg = statusConfig[server.status] ?? statusConfig.stopped
+  const disabled = new Set(server.disabledTools ?? [])
 
   return (
     <div className="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden">
@@ -88,7 +89,8 @@ function ServerCard({
             {cfg.label}
           </span>
           <span className="text-xs text-gray-500 bg-gray-700 px-2 py-0.5 rounded-full">
-            {server.toolsCount} tool
+            {server.toolsCount}
+            {server.tools.length !== server.toolsCount && `/${server.tools.length}`} tool
           </span>
           <svg
             className={`w-4 h-4 text-gray-500 transition-transform ${expanded ? 'rotate-180' : ''}`}
@@ -102,20 +104,44 @@ function ServerCard({
       {expanded && server.tools.length > 0 && (
         <div className="border-t border-gray-700 bg-gray-900/50">
           <div className="px-5 py-3">
-            <p className="text-xs text-gray-500 mb-3 uppercase tracking-wider">Available tools</p>
+            <p className="text-xs text-gray-500 mb-3 uppercase tracking-wider">
+              Available tools — uncheck to hide a tool from the agent
+            </p>
             <div className="space-y-2">
-              {server.tools.map(tool => (
-                <div key={tool.name} className="bg-gray-800 rounded-lg px-4 py-3 border border-gray-700">
-                  <div className="flex items-start justify-between gap-2">
-                    <div>
-                      <code className="text-xs font-mono text-blue-400 font-semibold">{tool.name}</code>
+              {server.tools.map(tool => {
+                const enabled = !disabled.has(tool.name)
+                return (
+                  <label
+                    key={tool.name}
+                    className={`flex items-start gap-3 bg-gray-800 rounded-lg px-4 py-3 border cursor-pointer transition-colors ${
+                      enabled
+                        ? 'border-gray-700 hover:border-gray-600'
+                        : 'border-gray-800 opacity-50 hover:opacity-75'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={enabled}
+                      onChange={e =>
+                        window.bridge.setToolEnabled(server.id, tool.name, e.target.checked)
+                      }
+                      className="mt-0.5 h-4 w-4 flex-shrink-0 rounded border-gray-600 bg-gray-900 text-blue-500 focus:ring-1 focus:ring-blue-500 cursor-pointer"
+                    />
+                    <div className="min-w-0">
+                      <code
+                        className={`text-xs font-mono font-semibold ${
+                          enabled ? 'text-blue-400' : 'text-gray-500 line-through'
+                        }`}
+                      >
+                        {tool.name}
+                      </code>
                       {tool.description && (
                         <p className="text-xs text-gray-400 mt-0.5">{tool.description}</p>
                       )}
                     </div>
-                  </div>
-                </div>
-              ))}
+                  </label>
+                )
+              })}
             </div>
           </div>
         </div>

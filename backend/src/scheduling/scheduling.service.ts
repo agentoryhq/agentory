@@ -14,7 +14,10 @@
  * Model B of the design (see "Auto-Scheduling (Design)" in PROJECT.md): the agent
  * re-reasons on each fire with all its tools → "schedule anything".
  */
-import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
+import {
+  Injectable, Logger, OnModuleInit, OnModuleDestroy,
+  NotFoundException, ServiceUnavailableException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ModuleRef } from '@nestjs/core';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -270,6 +273,31 @@ export class SchedulingService implements OnModuleInit, OnModuleDestroy {
     await this.repo.delete({ id, userId });
   }
 
+  /**
+   * "Run now": enqueues an immediate run of the automation, out of schedule.
+   * Goes through the same BullMQ worker as a scheduled fire, so the run is
+   * identical (agent + tool subset, chat delivery, notification, token guardrail)
+   * and the HTTP request doesn't stay open for the whole run: the outcome reaches
+   * the user via notification, as usual.
+   *
+   * Unlike a scheduled fire, a manual run works whatever the state is (pending,
+   * disabled, done) — it's the way to try an automation out — and does NOT alter
+   * `status`, so the programming stays exactly as it was.
+   */
+  async runNow(id: string, userId: string): Promise<{ queued: true }> {
+    const task = await this.repo.findOne({ where: { id, userId }, select: { id: true } });
+    if (!task) throw new NotFoundException('Automation not found.');
+    if (!this.enabled || !this.queue) {
+      throw new ServiceUnavailableException('The scheduler is not available (Redis unreachable).');
+    }
+    await this.queue.add(
+      'run',
+      { taskId: id, manual: true },
+      { removeOnComplete: true, removeOnFail: 50 },
+    );
+    return { queued: true };
+  }
+
   // ── Scheduler (BullMQ) ──────────────────────────────────────────────────────
 
   private async registerJob(task: ScheduledTask): Promise<void> {
@@ -309,9 +337,19 @@ export class SchedulingService implements OnModuleInit, OnModuleDestroy {
   // ── Worker: headless agent run + delivery ─────────────────────────────
 
   private async process(job: Job): Promise<void> {
-    const { taskId } = job.data as { taskId: string };
+    const { taskId, manual } = job.data as { taskId: string; manual?: boolean };
+    await this.runTask(taskId, manual === true);
+  }
+
+  /**
+   * Single run of an automation. `manual` = triggered by the user from the UI
+   * ("run now") instead of by the scheduler: it runs regardless of enabled/status
+   * and leaves `status` untouched (see `runNow`).
+   */
+  private async runTask(taskId: string, manual = false): Promise<void> {
     const task = await this.repo.findOne({ where: { id: taskId } });
-    if (!task || !task.enabled || task.status === 'done') return;
+    if (!task) return;
+    if (!manual && (!task.enabled || task.status === 'done')) return;
 
     let result: string;
     let inTok: number | null = null;
@@ -346,8 +384,12 @@ export class SchedulingService implements OnModuleInit, OnModuleDestroy {
       disabledByCost = true;
       await this.removeJobs(task.id);
     }
-    if (task.scheduleType === 'scheduled') task.status = failed ? 'error' : 'done';
-    else if (failed) task.status = 'error';
+    // A manual run must not consume/alter the programming: a one-shot stays scheduled
+    // (it isn't marked `done`) and a failure doesn't put the automation in `error`.
+    if (!manual) {
+      if (task.scheduleType === 'scheduled') task.status = failed ? 'error' : 'done';
+      else if (failed) task.status = 'error';
+    }
 
     const title = task.title ?? task.instruction.slice(0, 80);
 

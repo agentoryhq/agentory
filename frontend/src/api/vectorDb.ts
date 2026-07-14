@@ -36,6 +36,8 @@ export interface CreateCollectionPayload {
   name:         string;
   description?: string | null;
   isDefault?:   boolean;
+  /** Also auto-create the org-wide semantic search tool for this collection (default true). */
+  createSearchTool?: boolean;
 }
 
 export interface UpdateCollectionPayload {

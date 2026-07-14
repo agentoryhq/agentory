@@ -107,6 +107,29 @@ for key in JWT_SECRET TOOL_SECRETS_KEY RUN_TOKEN_SECRET SERVICE_API_KEY; do
     set_env "$key" "$(gen_secret)"; ok "$key regenerated"
   else ok "$key kept"; fi
 done
+# Upload size cap (nginx client_max_body_size + backend Multer), in MB.
+# Asked interactively; default = current value (or 50 on fresh installs), so
+# re-running the installer with Enter keeps the existing setting.
+cur_up="$(get_env MAX_UPLOAD_MB)"
+up_mb="$(ask "Max upload size in MB (file uploads via API/UI)" "${cur_up:-50}")"
+if [[ "$up_mb" =~ ^[0-9]+$ ]] && (( up_mb > 0 )); then
+  set_env MAX_UPLOAD_MB "$up_mb"; ok "MAX_UPLOAD_MB=${up_mb} MB"
+else
+  warn "invalid value \"$up_mb\": keeping ${cur_up:-50} MB"
+  set_env MAX_UPLOAD_MB "${cur_up:-50}"
+fi
+
+# Embedding device. It is ALSO a build-arg: on 'cpu' the image is built from the CPU-only
+# torch index, without the NVIDIA CUDA wheels (> 2 GB, ~3x the image size) that a machine
+# with no NVIDIA GPU would never use. 'cuda' requires an NVIDIA GPU exposed to Docker.
+cur_dev="$(get_env EMBEDDING_DEVICE)"
+emb_dev="$(ask "Embedding device — cpu | cuda (cuda needs an NVIDIA GPU on this host)" "${cur_dev:-cpu}")"
+case "$emb_dev" in
+  cpu)  set_env EMBEDDING_DEVICE cpu;  ok "EMBEDDING_DEVICE=cpu (image built without the CUDA wheels)" ;;
+  cuda) set_env EMBEDDING_DEVICE cuda; warn "EMBEDDING_DEVICE=cuda — the image will include the CUDA stack (bigger, slower to build); make sure the GPU is visible to Docker" ;;
+  *)    warn "invalid value \"$emb_dev\": keeping ${cur_dev:-cpu}"; set_env EMBEDDING_DEVICE "${cur_dev:-cpu}" ;;
+esac
+
 if (( IS_PROD )); then
   if weak DB_PASSWORD; then
     if yesno "DB_PASSWORD is weak/missing: generate a strong one?" "Y"; then
@@ -142,7 +165,12 @@ EOF
 LEVEL="$(ask "Level [1/2/3]" "2")"
 case "$LEVEL" in 1|2|3) ;; *) warn "invalid value, using 2"; LEVEL=2;; esac
 
-COMPOSE_FILES=("-f" "docker-compose.yml")
+# Fixed compose project name → containers/volumes are `agentory-*`, not derived from
+# the working-directory name (which is still `personalAgent`). `-p` is a global option,
+# so prepending it here propagates to every `docker compose` call AND the generated
+# scripts/compose.sh wrapper (which reuses this array).
+PROJECT_NAME="agentory"
+COMPOSE_FILES=("-p" "$PROJECT_NAME" "-f" "docker-compose.yml")
 (( IS_PROD )) || COMPOSE_FILES+=("-f" "docker-compose.override.yml")
 NEED_RUNNER=0; NEED_EGRESS=0
 
@@ -161,8 +189,11 @@ else
   set_env SANDBOX_ALLOW_INPROCESS 0   # with the broker the in-process one is never needed
 
   # HOST_DATA_DIR: host==container invariant (see bootstrap-broker.sh)
+  # Fall back to an OS-appropriate ABSOLUTE default when the seeded value is empty OR
+  # relative (e.g. the `./data` example) — otherwise the absolute-path guard below would
+  # reject a freshly-seeded .env and abort the install.
   def_host="$(get_env HOST_DATA_DIR)"
-  if [[ -z "$def_host" ]]; then
+  if [[ -z "$def_host" || "$def_host" != /* ]]; then
     case "$(uname -s)" in Darwin) def_host="$HOME/agentory-data";; *) def_host="/srv/agentory/data";; esac
   fi
   HOST_DATA_DIR="$(ask "Host path of the shared data (HOST_DATA_DIR)" "$def_host")"

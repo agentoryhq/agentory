@@ -36,3 +36,7 @@ frontend/.env
 
 # Local data backups (backup.sh)
 /backups/
+
+# Internal publish tooling (private → public mirror). Kept in the repo root so it
+# is not lost, but never committed/published.
+/publish-agentory.sh

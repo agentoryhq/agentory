@@ -10,7 +10,7 @@
  *   ├─ ConnessioneSection  — name, description, connectionString
  *   └─ SchemaSection       — schemaHints, prefetchRelations, scope
  */
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
@@ -179,7 +179,7 @@ function DataSourceCard({
       className="flex items-start gap-3 px-4 py-3.5 hover:bg-gray-800/30 transition-colors cursor-pointer"
     >
       {/* Icon */}
-      <div className="mt-0.5 flex-shrink-0 text-amber-500/60">
+      <div className="mt-0.5 flex-shrink-0 text-amber-500">
         <Database size={17} />
       </div>
 
@@ -188,7 +188,7 @@ function DataSourceCard({
         <div className="flex items-center gap-2 flex-wrap">
           <span className="text-sm font-medium text-gray-200">{ds.name}</span>
           <ScopeBadge scope={ds.scope} />
-          <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-300/90 font-medium">
+          <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-300 font-medium">
             {ENGINE_LABELS[ds.engine] ?? ds.engine}
           </span>
         </div>
@@ -212,9 +212,17 @@ function DataSourceCard({
 function ManifestEditor({
   dsId,
   initialManifest,
+  registerPendingSave,
 }: {
   dsId: string;
   initialManifest: SchemaManifest | DocumentManifest | KeyspaceManifest | null;
+  /**
+   * Hands the modal a way to flush the pending schema edits. The manifest has its own
+   * endpoint and its own "save schema" button, so without this the modal's "Save" would
+   * persist the form only and silently drop deny/comments/relations edited here.
+   * Called with `null` when there is nothing to save.
+   */
+  registerPendingSave?: (save: (() => Promise<void>) | null) => void;
 }) {
   const { t } = useTranslation('datasources');
   const qc = useQueryClient();
@@ -254,6 +262,13 @@ function ManifestEditor({
   });
 
   const busy = introspectMut.isPending || enrichMut.isPending || saveMut.isPending || clearMut.isPending;
+
+  // Keep the modal in sync with the unsaved schema edits, so its "Save" can flush them too.
+  const saveAsync = saveMut.mutateAsync;
+  useEffect(() => {
+    registerPendingSave?.(dirty ? () => saveAsync().then(() => undefined) : null);
+    return () => registerPendingSave?.(null);
+  }, [dirty, manifest, registerPendingSave, saveAsync]);
 
   // ── Local SQL mutators (non-destructive on the structure) ────────────────────
   const patchTable = (ti: number, patch: Partial<SchemaManifest['tables'][number]>) => {
@@ -443,7 +458,7 @@ function ManifestEditor({
               {sqlM.tables.map((tbl, ti) => {
                 const open = openTables[tbl.name];
                 return (
-                  <div key={tbl.name} className={`rounded-lg border ${tbl.deny ? 'border-red-900/40 bg-red-950/10' : 'border-gray-800 bg-gray-900'}`}>
+                  <div key={tbl.name} className={`rounded-lg border ${tbl.deny ? 'border-red-900/40 bg-red-500/10' : 'border-gray-800 bg-gray-900'}`}>
                     <div className="flex items-center gap-2 px-2.5 py-2">
                       <button onClick={() => setOpenTables((s) => ({ ...s, [tbl.name]: !s[tbl.name] }))} className="text-gray-600 hover:text-gray-400">
                         {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
@@ -510,7 +525,7 @@ function ManifestEditor({
               {docM.collections.map((coll, ci) => {
                 const open = openTables[coll.name];
                 return (
-                  <div key={coll.name} className={`rounded-lg border ${coll.deny ? 'border-red-900/40 bg-red-950/10' : 'border-gray-800 bg-gray-900'}`}>
+                  <div key={coll.name} className={`rounded-lg border ${coll.deny ? 'border-red-900/40 bg-red-500/10' : 'border-gray-800 bg-gray-900'}`}>
                     <div className="flex items-center gap-2 px-2.5 py-2">
                       <button onClick={() => setOpenTables((s) => ({ ...s, [coll.name]: !s[coll.name] }))} className="text-gray-600 hover:text-gray-400">
                         {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
@@ -575,7 +590,7 @@ function ManifestEditor({
             <Label>{t('manifest.patternsLabel')}</Label>
             <div className="space-y-1">
               {keyM.patterns.map((p, pi) => (
-                <div key={p.pattern} className={`flex items-center gap-2 rounded-lg border px-2.5 py-2 ${p.deny ? 'border-red-900/40 bg-red-950/10' : 'border-gray-800 bg-gray-900'}`}>
+                <div key={p.pattern} className={`flex items-center gap-2 rounded-lg border px-2.5 py-2 ${p.deny ? 'border-red-900/40 bg-red-500/10' : 'border-gray-800 bg-gray-900'}`}>
                   <span className={`text-xs font-mono ${p.deny ? 'text-red-400 line-through' : 'text-gray-200'}`} title={p.sampleKeys?.join(', ')}>{p.pattern}</span>
                   <span className="text-[10px] text-gray-700">{p.type} · ~{p.count}</span>
                   <input
@@ -623,6 +638,7 @@ function DataSourceEditor({
     ds ? dataSourceToForm(ds) : emptyForm(),
   );
   const [saveError, setSaveError] = useState('');
+  const [savingManifest, setSavingManifest] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [savedId, setSavedId]     = useState<string | null>(ds?.id ?? null);
   const [testResult, setTestResult] = useState<TestConnectionResult | null>(null);
@@ -718,12 +734,40 @@ function DataSourceEditor({
     },
   });
 
-  const isSaving = createMut.isPending || updateMut.isPending;
+  const isSaving = createMut.isPending || updateMut.isPending || savingManifest;
 
-  function handleSave() {
+  // Pending schema edits (deny/comments/relations) live in ManifestEditor, which has its
+  // own endpoint. It registers a flush function here so that ONE "Save" persists both:
+  // otherwise a hidden table is silently lost when the modal closes.
+  const manifestSaveRef = useRef<(() => Promise<void>) | null>(null);
+  const registerManifestSave = useCallback((save: (() => Promise<void>) | null) => {
+    manifestSaveRef.current = save;
+  }, []);
+
+  async function handleSave() {
     setSaveError('');
-    if (hasSaved) updateMut.mutate();
-    else createMut.mutate();
+    try {
+      if (hasSaved) await updateMut.mutateAsync();
+      else await createMut.mutateAsync();
+    } catch {
+      return; // the mutation's onError already surfaced the message
+    }
+    const flushManifest = manifestSaveRef.current;
+    if (!flushManifest) return;
+    setSavingManifest(true);
+    try {
+      await flushManifest();
+    } catch (err: any) {
+      setSaveError(err.response?.data?.message || err.message || t('errors.updateFailed'));
+    } finally {
+      setSavingManifest(false);
+    }
+  }
+
+  // Closing with unsaved schema edits would drop them: ask first.
+  function handleClose() {
+    if (manifestSaveRef.current && !window.confirm(t('modal.unsavedSchemaConfirm'))) return;
+    onClose();
   }
 
   // Test connection: uses the plaintext connection string if entered, otherwise
@@ -830,7 +874,7 @@ function DataSourceEditor({
         {/* Header with back button */}
         <div className="flex items-center gap-3 mb-5">
           <button
-            onClick={onClose}
+            onClick={handleClose}
             className="text-gray-400 hover:text-white flex items-center gap-1 text-sm flex-shrink-0"
           >
             <ArrowLeft size={16} /> {t('section.title')}
@@ -1118,7 +1162,12 @@ function DataSourceEditor({
                     <span className="text-gray-600 font-normal">{t('form.enrichedSchemaHint')}</span>
                   </Label>
                   {hasSaved ? (
-                    <ManifestEditor key={savedId!} dsId={savedId!} initialManifest={ds?.schemaManifest ?? null} />
+                    <ManifestEditor
+                      key={savedId!}
+                      dsId={savedId!}
+                      initialManifest={ds?.schemaManifest ?? null}
+                      registerPendingSave={registerManifestSave}
+                    />
                   ) : (
                     <p className="text-xs text-gray-600">
                       {t('form.enrichedSchemaSaveFirst')}
@@ -1140,8 +1189,10 @@ function DataSourceEditor({
               </div>
 
               {/* Security warning info */}
-              <div className="flex items-start gap-2 text-xs text-amber-400/80 bg-amber-950/30
-                border border-amber-900/50 rounded-lg px-2.5 py-2">
+              {/* Translucent tint + remapped text: the dark shades (amber-950/900, and any
+                  class with an opacity suffix) are not remapped in the light theme. */}
+              <div className="flex items-start gap-2 text-xs text-amber-400 bg-amber-500/15
+                border border-amber-500/30 rounded-lg px-2.5 py-2">
                 <AlertCircle size={12} className="mt-0.5 flex-shrink-0" />
                 <span>
                   {t('form.securityNote')}
@@ -1198,7 +1249,7 @@ function DataSourceEditor({
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
             <button
-              onClick={onClose}
+              onClick={handleClose}
               className="px-3 py-2 text-sm text-gray-400 hover:text-gray-200 rounded-lg transition-colors"
             >
               {hasSaved ? t('modal.closeSaved') : t('common:actions.cancel')}
@@ -1337,11 +1388,11 @@ export function DataSourcesSection() {
         <div className="bg-gray-900/60 border border-gray-800/60 rounded-xl px-4 py-3 space-y-1">
           <p className="text-xs font-medium text-gray-500">{t('security.title')}</p>
           <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs text-gray-600">
-            <Lock size={11} className="text-amber-500/60 mt-0.5" />
+            <Lock size={11} className="text-amber-500 mt-0.5" />
             <span>{t('security.encryption')}</span>
-            <Database size={11} className="text-amber-500/60 mt-0.5" />
+            <Database size={11} className="text-amber-500 mt-0.5" />
             <span>{t('security.queryOnDemand')}</span>
-            <Users size={11} className="text-amber-500/60 mt-0.5" />
+            <Users size={11} className="text-amber-500 mt-0.5" />
             <span>{t('security.sharedAccess')}</span>
           </div>
         </div>

@@ -10,9 +10,12 @@ import {
 import { Type } from 'class-transformer';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { AdminGuard } from '../common/guards/admin.guard';
+import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { VectorDbService } from './vector-db.service';
 import { VectorStoreProviderService } from './vector-store-provider.service';
 import { EmbedService } from '../embed/embed.service';
+import { CustomToolsService } from '../custom-tools/custom-tools.service';
+import { ragSearchToolDescription } from '../prompts/prompts';
 import type { VectorDbProvider } from './vector-store.types';
 
 // ── DTO ───────────────────────────────────────────────────────────────────────
@@ -51,6 +54,13 @@ class CreateCollectionDto {
 
   @IsOptional() @IsBoolean()
   isDefault?: boolean;
+
+  /**
+   * Also create an org-wide 'rag' search tool bound to this collection
+   * (default true). Skipped if a rag tool for the collection already exists.
+   */
+  @IsOptional() @IsBoolean()
+  createSearchTool?: boolean;
 }
 
 class UpdateCollectionDto {
@@ -78,6 +88,8 @@ export class VectorDbController {
     private readonly vectorStoreProvider:  VectorStoreProviderService,
     @Optional() @Inject(forwardRef(() => EmbedService))
     private readonly embedService:         EmbedService | null,
+    @Optional() @Inject(forwardRef(() => CustomToolsService))
+    private readonly customTools:          CustomToolsService | null,
   ) {}
 
   // ── Config ─────────────────────────────────────────────────────────────────
@@ -117,7 +129,7 @@ export class VectorDbController {
   /** POST /api/admin/vector-db/collections */
   @Post('collections')
   @ApiOperation({ summary: 'Create new collection' })
-  async createCollection(@Body() dto: CreateCollectionDto) {
+  async createCollection(@Body() dto: CreateCollectionDto, @CurrentUser() user: any) {
     const created = await this.service.createCollection(dto);
 
     // Also create the collection physically in the vector store (best-effort).
@@ -135,7 +147,49 @@ export class VectorDbController {
       }
     }
 
+    // Also create an org-wide semantic-search tool bound to the collection
+    // (best-effort, opt-out via createSearchTool=false). Only at creation time
+    // and only if no rag tool targets the collection yet: deleting the tool is
+    // a stable opt-out, it is never resurrected.
+    if (dto.createSearchTool !== false && this.customTools) {
+      try {
+        await this.createSearchToolFor(created.name, created.description, user.id);
+      } catch (err) {
+        this.logger.warn(`Search tool for collection "${created.name}" not created: ${err.message}`);
+      }
+    }
+
     return created;
+  }
+
+  /**
+   * Creates the default org-wide 'rag' search tool for a collection.
+   * searchScope 'auto' keeps per-user visibility native (universal + caller's
+   * personal + current project docs), so the shared tool is safe by construction.
+   */
+  private async createSearchToolFor(
+    collection: string,
+    collectionDescription: string | null,
+    adminId: string,
+  ): Promise<void> {
+    if (await this.customTools!.existsRagToolForCollection(collection)) {
+      this.logger.log(`A rag tool for collection "${collection}" already exists — skip auto-create`);
+      return;
+    }
+
+    // Tool names must match /^[a-z][a-z0-9_]{1,63}$/ — slugify the collection name.
+    const slug = collection.toLowerCase().replace(/[^a-z0-9_]+/g, '_').replace(/^_+|_+$/g, '');
+    const name = `search_${slug || 'collection'}`.slice(0, 64);
+
+    await this.customTools!.create(adminId, {
+      name,
+      description:    ragSearchToolDescription(collection, collectionDescription),
+      parameters:     [],
+      executorType:   'rag',
+      executorConfig: { mode: 'search', collection, searchScope: 'auto', limit: 5 },
+      scope:          'org',
+    });
+    this.logger.log(`Auto-created org search tool "${name}" for collection "${collection}"`);
   }
 
   /** PATCH /api/admin/vector-db/collections/:id */

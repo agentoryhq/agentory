@@ -184,19 +184,29 @@ export default function MessageInput({ onSend, disabled, chatId, projectId }: Pr
     };
 
     if (mode === 'embed') {
-      // Start the indexing and immediately send an automatic message that
-      // confirms the operation — so the LLM replies with the document ID
-      // and the message is persisted in the messages table.
+      // Start the indexing and send an automatic informative message so the
+      // event (file name, fileId, scope, collection) is persisted in the chat
+      // history and the LLM knows the document is in the knowledge base.
+      // It must NOT ask the LLM to confirm/verify anything: the agent has no
+      // tool to check the ingestion and would reply that it cannot.
       filesApi.ingest(pendingFile.record.id, {
         scope,
         collection: collection || undefined,
         projectId: projectId || undefined,
       }).catch(() => {});
 
-      const scopeLabel = scope === 'universal' ? 'universal' : scope === 'project' ? 'project' : 'personal';
-      const collectionLabel = collection ? ` in collection "${collection}"` : '';
+      const scopeLabel = t(
+        scope === 'universal' ? 'embedMsg.scopeUniversal'
+        : scope === 'project' ? 'embedMsg.scopeProject'
+        : 'embedMsg.scopePersonal',
+      );
       onSend(
-        `I indexed the file "${pendingFile.originalName}" into RAG (${scopeLabel})${collectionLabel}. Please confirm the operation with the fileId.`,
+        t('embedMsg.text', {
+          name:       pendingFile.originalName,
+          fileId:     pendingFile.record.id,
+          scope:      scopeLabel,
+          collection: collection ? t('embedMsg.collectionSuffix', { collection }) : '',
+        }),
         [attachment],
       );
 

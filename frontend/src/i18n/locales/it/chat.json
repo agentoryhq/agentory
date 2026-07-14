@@ -48,6 +48,13 @@
     "tagNative": "·nativo",
     "tagRag": "·rag"
   },
+  "embedMsg": {
+    "text": "Ho indicizzato il file \"{{name}}\" (fileId: {{fileId}}) nel RAG — ambito {{scope}}{{collection}}. L'operazione è già stata eseguita lato server: non serve alcuna conferma o verifica, rispondi solo prendendone atto.",
+    "collectionSuffix": ", collection \"{{collection}}\"",
+    "scopeUniversal": "universale",
+    "scopeProject": "progetto",
+    "scopePersonal": "personale"
+  },
   "collection": {
     "howToIndexPre": "Come indicizzare",
     "loading": "Caricamento collection…",
@@ -79,6 +86,9 @@
     "click": "Clicca per aprire",
     "loading": "Apertura...",
     "error": "⚠ Errore apertura"
+  },
+  "image": {
+    "loading": "Caricamento immagine..."
   },
   "feedback": {
     "useful": "Risposta utile",

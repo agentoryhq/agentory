@@ -18,9 +18,16 @@ export interface ServerState {
   status: 'starting' | 'running' | 'stopped' | 'error'
   pid?: number
   error?: string
+  /** Tools actually exposed to the server (total minus the disabled ones). */
   toolsCount: number
+  /** Every tool the MCP process declares, disabled ones included. */
   tools: McpTool[]
+  /** Names excluded by the user: never registered, never callable. */
+  disabledTools: string[]
 }
+
+/** Disabled tool names per server id, as persisted by the main process. */
+export type DisabledToolsMap = Record<string, string[]>
 
 interface ToolCallPayload {
   callId: string
@@ -42,8 +49,18 @@ export class BridgeManager {
   private connectedSince: number | null = null
   private latency: number | null = null
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
+  /** serverId → names of the tools the user turned off. */
+  private disabled = new Map<string, Set<string>>()
 
-  constructor(private emit: EmitFn) {}
+  constructor(
+    private emit: EmitFn,
+    disabled: DisabledToolsMap = {},
+    private persistDisabled: (map: DisabledToolsMap) => void = () => {}
+  ) {
+    for (const [serverId, names] of Object.entries(disabled)) {
+      if (names.length > 0) this.disabled.set(serverId, new Set(names))
+    }
+  }
 
   getStatus(): BridgeStatus {
     const servers: ServerState[] = []
@@ -53,8 +70,9 @@ export class BridgeManager {
         name: proc.config.name,
         status: proc.status,
         pid: proc.pid,
-        toolsCount: proc.tools.length,
-        tools: proc.tools
+        toolsCount: this.enabledTools(id, proc.tools).length,
+        tools: proc.tools,
+        disabledTools: [...(this.disabled.get(id) ?? [])]
       })
     }
 
@@ -98,6 +116,9 @@ export class BridgeManager {
       this.connectedSince = Date.now()
       this.emitStatus()
       this.log('success', `Connected to ${serverUrl}`)
+      // Processes may already be running (backend restart, dropped socket):
+      // republish their tools, otherwise the agent would see none.
+      for (const id of this.processes.keys()) this.registerTools(id)
       this.startLatencyPing()
     })
 
@@ -192,12 +213,8 @@ export class BridgeManager {
       this.emitStatus()
     })
 
-    proc.on('tools', (tools: McpTool[]) => {
-      this.socket?.emit('tools:register', {
-        serverId: serverConfig.id,
-        tools
-      })
-      this.log('success', `[${serverConfig.name}] ${tools.length} tools registered`)
+    proc.on('tools', () => {
+      this.registerTools(serverConfig.id)
       this.emitStatus()
     })
 
@@ -208,9 +225,69 @@ export class BridgeManager {
     })
   }
 
+  // ── Per-tool enable/disable ─────────────────────────────────────────────────
+
+  /** Tools of a server minus the ones the user disabled. */
+  private enabledTools(serverId: string, tools: McpTool[]): McpTool[] {
+    const off = this.disabled.get(serverId)
+    return off ? tools.filter(t => !off.has(t.name)) : tools
+  }
+
+  /**
+   * Publishes a server's ENABLED tools to the backend. The backend replaces the
+   * whole list for that server id, so this is also how a tool disappears from
+   * (or comes back to) the agent without restarting the MCP process.
+   */
+  private registerTools(serverId: string): void {
+    const proc = this.processes.get(serverId)
+    if (!proc) return
+
+    const tools = this.enabledTools(serverId, proc.tools)
+    this.socket?.emit('tools:register', { serverId, tools })
+
+    const offCount = proc.tools.length - tools.length
+    this.log(
+      'success',
+      `[${proc.config.name}] ${tools.length} tools registered` +
+        (offCount > 0 ? ` (${offCount} disabled)` : '')
+    )
+  }
+
+  /**
+   * Turns a single tool of a server on or off. A disabled tool is not exposed to
+   * the agent and is refused if it is called anyway (stale registration).
+   */
+  setToolEnabled(serverId: string, toolName: string, enabled: boolean): void {
+    const off = this.disabled.get(serverId) ?? new Set<string>()
+    if (enabled) off.delete(toolName)
+    else off.add(toolName)
+
+    if (off.size > 0) this.disabled.set(serverId, off)
+    else this.disabled.delete(serverId)
+
+    const map: DisabledToolsMap = {}
+    for (const [id, names] of this.disabled) map[id] = [...names]
+    this.persistDisabled(map)
+
+    const proc = this.processes.get(serverId)
+    this.log('info', `[${proc?.config.name ?? serverId}] Tool ${toolName} ${enabled ? 'enabled' : 'disabled'}`)
+
+    this.registerTools(serverId)
+    this.emitStatus()
+  }
+
   private async handleToolCall(payload: ToolCallPayload): Promise<void> {
     const { callId, serverId, tool, args } = payload
     this.log('info', `Tool call: ${tool} on server ${serverId} (callId=${callId})`)
+
+    if (this.disabled.get(serverId)?.has(tool)) {
+      this.log('warn', `Tool ${tool} is disabled in the bridge: call refused`)
+      this.socket?.emit('tool:result', {
+        callId,
+        error: `Tool "${tool}" is disabled in the bridge and cannot be called.`
+      })
+      return
+    }
 
     const proc = this.processes.get(serverId)
     if (!proc) {

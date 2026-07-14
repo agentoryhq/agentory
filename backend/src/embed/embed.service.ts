@@ -10,24 +10,22 @@
  * with a payload that includes the original text, file metadata and userId.
  * This lets the agent's RAG tool filter by user and run contextualized semantic searches.
  */
-import { Injectable, Inject, Logger, Optional } from '@nestjs/common';
-import { v4 as uuidv4 } from 'uuid';
-import { basename } from 'path';
-import { lookup as mimeLookup } from 'mime-types';
-import { FilesService } from '../files/files.service';
-import { File } from '../files/files.entity';
-import { DataSourcesService } from '../datasources/datasources.service';
-import type { DocScope } from '../custom-tools/custom-tool.types';
-import { EmbeddingProviderService } from './embedding.provider.service';
-import { VectorDbService } from '../vector-db/vector-db.service';
-import { VectorStoreProviderService } from '../vector-db/vector-store-provider.service';
+import {Inject, Injectable, Logger, Optional} from '@nestjs/common';
+import {v4 as uuidv4} from 'uuid';
+import {lookup as mimeLookup} from 'mime-types';
+import {FilesService} from '../files/files.service';
+import {File} from '../files/files.entity';
+import {DataSourcesService} from '../datasources/datasources.service';
+import type {DocScope} from '../custom-tools/custom-tool.types';
+import {EmbeddingProviderService} from './embedding.provider.service';
+import {VectorDbService} from '../vector-db/vector-db.service';
+import {VectorStoreProviderService} from '../vector-db/vector-store-provider.service';
 
 @Injectable()
 export class EmbedService {
-  private readonly logger = new Logger(EmbedService.name);
-
   /** Cap on the bytes read into memory for indexing a datasource file. */
   static readonly MAX_INGEST_BYTES = 50 * 1024 * 1024;
+  private readonly logger = new Logger(EmbedService.name);
 
   constructor(
     @Inject(FilesService)               private readonly filesService:     FilesService,
@@ -36,46 +34,6 @@ export class EmbedService {
     @Optional() @Inject(VectorDbService) private readonly vectorDbService: VectorDbService | null,
     @Optional() @Inject(VectorStoreProviderService) private readonly vectorStore: VectorStoreProviderService | null,
   ) {}
-
-  /**
-   * Resolves the collection name to use.
-   * Priority: 1) default collection in the DB (admin UI), 2) 'default_collection'.
-   */
-  private async resolveDefaultCollectionName(): Promise<string> {
-    if (this.vectorDbService) {
-      try {
-        const col = await this.vectorDbService.getDefaultCollection();
-        if (col) return col.name;
-      } catch {
-        // fallback
-      }
-    }
-    return 'default_collection';
-  }
-
-  /**
-   * Splits the text into overlapping chunks of fixed size.
-   * The chunkSize and chunkOverlap parameters are read from the embedding config (DB or env).
-   *
-   * Sliding window algorithm:
-   *   step = chunkSize - chunkOverlap
-   *   chunk_i = text[i*step : i*step + chunkSize]
-   *
-   * @param text - Raw text extracted from the file
-   * @returns Array of overlapping chunks
-   */
-  private async chunkText(text: string): Promise<string[]> {
-    const chunkSize    = await this.embeddingProvider.getChunkSize();
-    const chunkOverlap = await this.embeddingProvider.getChunkOverlap();
-
-    const chunks: string[] = [];
-    const step = chunkSize - chunkOverlap;
-    for (let i = 0; i < text.length; i += step) {
-      chunks.push(text.slice(i, i + chunkSize));
-      if (i + chunkSize >= text.length) break;
-    }
-    return chunks;
-  }
 
   /**
    * Ensures the Qdrant collection exists with the correct vector dimension.
@@ -198,44 +156,6 @@ export class EmbedService {
   }
 
   /**
-   * Chunk → embedding (batch) → upsert into the vector store, with the vector-dimension
-   * consistency check. The per-chunk `payload` always includes the `text`; the
-   * provenance metadata is passed by the caller. Returns the number of indexed chunks.
-   */
-  private async embedTextIntoCollection(
-    text:           string,
-    collectionName: string,
-    payload:        Record<string, unknown>,
-  ): Promise<number> {
-    const chunks  = await this.chunkText(text);
-    const vectors = await this.embeddingProvider.embedBatch(chunks);
-
-    // Sanity check: the vector dimension must match the collection's.
-    // It could diverge if the embedding model was changed after the collection was created.
-    const actualDim = vectors[0]?.length;
-    this.logger.log(`Vectors received: ${vectors.length} x dim=${actualDim} (expected: ${this.embeddingProvider.vectorSize})`);
-
-    if (actualDim !== this.embeddingProvider.vectorSize) {
-      throw new Error(
-        `Vector dimension mismatch: model returns ${actualDim} dims, ` +
-        `collection created with ${this.embeddingProvider.vectorSize}. ` +
-        `Update EMBEDDING_VECTOR_SIZE=${actualDim} in .env`,
-      );
-    }
-
-    const vs = this.vectorStore;
-    if (!vs) throw new Error('VectorStoreProviderService not available');
-
-    const points = chunks.map((chunk, i) => ({
-      id:      uuidv4(),
-      vector:  vectors[i],
-      payload: { text: chunk, ...payload },
-    }));
-    await vs.upsert(collectionName, points);
-    return chunks.length;
-  }
-
-  /**
    * Indexes a file by its ID, retrieving it from the DB first.
    *
    * Convenience for callers (e.g. custom tool RAG index) that only have the fileId
@@ -312,12 +232,109 @@ export class EmbedService {
   }
 
   /**
-   * Returns the list of existing collections in the configured vector store.
-   * Used by the administration endpoint.
+   * Returns the collections available for embedding: the union of the ones
+   * registered in the DB (admin UI) and the ones physically present in the
+   * vector store. Registered collections may not exist physically yet — they
+   * are created on the first embed via ensureCollection() — but they must
+   * still show up in the picker. Both sources are best-effort.
    */
-  async listCollections() {
+  async listCollections(): Promise<string[]> {
+    const names = new Set<string>();
+
+    if (this.vectorDbService) {
+      try {
+        for (const col of await this.vectorDbService.listCollections()) names.add(col.name);
+      } catch (err) {
+        this.logger.warn(`Unable to list registered collections: ${err.message}`);
+      }
+    }
+
+    if (this.vectorStore) {
+      try {
+        for (const name of await this.vectorStore.listCollections()) names.add(name);
+      } catch (err) {
+        this.logger.warn(`Unable to list vector store collections: ${err.message}`);
+      }
+    }
+
+    return [...names].sort();
+  }
+
+  /**
+   * Resolves the collection name to use.
+   * Priority: 1) default collection in the DB (admin UI), 2) 'default_collection'.
+   */
+  private async resolveDefaultCollectionName(): Promise<string> {
+    if (this.vectorDbService) {
+      try {
+        const col = await this.vectorDbService.getDefaultCollection();
+        if (col) return col.name;
+      } catch {
+        // fallback
+      }
+    }
+    return 'default_collection';
+  }
+
+  /**
+   * Splits the text into overlapping chunks of fixed size.
+   * The chunkSize and chunkOverlap parameters are read from the embedding config (DB or env).
+   *
+   * Sliding window algorithm:
+   *   step = chunkSize - chunkOverlap
+   *   chunk_i = text[i*step : i*step + chunkSize]
+   *
+   * @param text - Raw text extracted from the file
+   * @returns Array of overlapping chunks
+   */
+  private async chunkText(text: string): Promise<string[]> {
+    const chunkSize    = await this.embeddingProvider.getChunkSize();
+    const chunkOverlap = await this.embeddingProvider.getChunkOverlap();
+
+    const chunks: string[] = [];
+    const step = chunkSize - chunkOverlap;
+    for (let i = 0; i < text.length; i += step) {
+      chunks.push(text.slice(i, i + chunkSize));
+      if (i + chunkSize >= text.length) break;
+    }
+    return chunks;
+  }
+
+  /**
+   * Chunk → embedding (batch) → upsert into the vector store, with the vector-dimension
+   * consistency check. The per-chunk `payload` always includes the `text`; the
+   * provenance metadata is passed by the caller. Returns the number of indexed chunks.
+   */
+  private async embedTextIntoCollection(
+    text:           string,
+    collectionName: string,
+    payload:        Record<string, unknown>,
+  ): Promise<number> {
+    const chunks  = await this.chunkText(text);
+    const vectors = await this.embeddingProvider.embedBatch(chunks);
+
+    // Sanity check: the vector dimension must match the collection's.
+    // It could diverge if the embedding model was changed after the collection was created.
+    const actualDim = vectors[0]?.length;
+    this.logger.log(`Vectors received: ${vectors.length} x dim=${actualDim} (expected: ${this.embeddingProvider.vectorSize})`);
+
+    if (actualDim !== this.embeddingProvider.vectorSize) {
+      throw new Error(
+        `Vector dimension mismatch: model returns ${actualDim} dims, ` +
+        `collection created with ${this.embeddingProvider.vectorSize}. ` +
+        `Update EMBEDDING_VECTOR_SIZE=${actualDim} in .env`,
+      );
+    }
+
     const vs = this.vectorStore;
-    if (!vs) return [];
-    return vs.listCollections();
+    if (!vs) throw new Error('VectorStoreProviderService not available');
+
+    const points = chunks.map((chunk, i) => ({
+      id:      uuidv4(),
+      vector:  vectors[i],
+      payload: { text: chunk, ...payload },
+    }));
+    await vs.upsert(collectionName, points);
+    return chunks.length;
   }
 }

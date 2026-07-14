@@ -238,6 +238,20 @@ export class CustomToolsService {
   }
 
   /**
+   * True if any 'rag' tool (any user, any scope) already targets the given
+   * collection. Used by the vector-db admin flow to keep the auto-created
+   * search tool idempotent.
+   */
+  async existsRagToolForCollection(collection: string): Promise<boolean> {
+    const count = await this.toolRepo
+      .createQueryBuilder('t')
+      .where('t.executorType = :type', { type: 'rag' })
+      .andWhere(`t.executorConfig ->> 'collection' = :collection`, { collection })
+      .getCount();
+    return count > 0;
+  }
+
+  /**
    * Returns all the tools accessible by the user:
    *   - the user's own tools (any scope)
    *   - the shared tools of others
@@ -252,7 +266,7 @@ export class CustomToolsService {
         id: true, name: true, description: true,
         parameters: true as any,
         executorType: true, executorConfig: true as any,
-        enabled: true, userId: true, scope: true, teamId: true,
+        enabled: true, loadOnFirst: true, userId: true, scope: true, teamId: true,
         createdAt: true, updatedAt: true,
         // keyName yes, encryptedValue never
         secrets: { id: true, toolId: true, keyName: true },
@@ -272,7 +286,7 @@ export class CustomToolsService {
         id: true, name: true, description: true,
         parameters: true as any,
         executorType: true, executorConfig: true as any,
-        enabled: true, userId: true, scope: true,
+        enabled: true, loadOnFirst: true, userId: true, scope: true, teamId: true,
         createdAt: true, updatedAt: true,
         secrets: { id: true, toolId: true, keyName: true },
       },
@@ -297,7 +311,7 @@ export class CustomToolsService {
         id: true, name: true, description: true,
         parameters: true as any,
         executorType: true, executorConfig: true as any,
-        enabled: true, userId: true, scope: true,
+        enabled: true, loadOnFirst: true, userId: true, scope: true, teamId: true,
         createdAt: true, updatedAt: true,
         secrets: { id: true, toolId: true, keyName: true },
       },
@@ -388,7 +402,7 @@ export class CustomToolsService {
         id: true, name: true, description: true,
         parameters: true as any,
         executorType: true, executorConfig: true as any,
-        enabled: true, userId: true, scope: true, teamId: true,
+        enabled: true, loadOnFirst: true, userId: true, scope: true, teamId: true,
         createdAt: true, updatedAt: true,
         secrets: { id: true, toolId: true, keyName: true },
       },

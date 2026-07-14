@@ -60,6 +60,19 @@ if [ -d "$NIX_PROFILE_BIN" ]; then
   export PATH="$NIX_PROFILE_BIN:$PATH"
 fi
 
+# Fallback for container RECREATE: the /nix store is a persistent volume, but the
+# ~/.nix-profile symlink lives in HOME (the container filesystem) and is lost when the
+# container is recreated (image rebuild / `up` with a new container). Since /nix/.nix-ready
+# exists, step 1 skips reinstall — leaving `nix` off PATH and system.nix skills silently
+# skipped. Recover by putting the persistent store's nix binary directly on PATH.
+if ! command -v nix >/dev/null 2>&1; then
+  NIX_STORE_BIN="$(ls -d /nix/store/*-nix-[0-9]*/bin 2>/dev/null | sort | tail -1)"
+  if [ -n "$NIX_STORE_BIN" ] && [ -x "$NIX_STORE_BIN/nix" ]; then
+    export PATH="$NIX_STORE_BIN:$PATH"
+    echo "[entrypoint] nix restored from persistent store: $NIX_STORE_BIN"
+  fi
+fi
+
 echo "[entrypoint] PATH: $PATH"
 echo "[entrypoint] Starting: $*"
 

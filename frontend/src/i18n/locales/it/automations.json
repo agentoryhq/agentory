@@ -13,16 +13,19 @@
     "totalTokens": "totale {{count}}",
     "toolLabel": "tool",
     "toolNone": "nessuno",
-    "toolAll": "tutti"
+    "toolAll": "tutti",
+    "runStarted": "Esecuzione avviata: riceverai una notifica al termine, con l'esito anche in chat."
   },
   "actions": {
     "activate": "Attiva",
+    "runNow": "Esegui ora",
     "enableLabel": "attiva",
     "deleteConfirm": "Eliminare questa automazione?"
   },
   "errors": {
     "operationFailed": "Operazione non riuscita",
     "deleteFailed": "Eliminazione non riuscita",
-    "activationFailed": "Attivazione non riuscita"
+    "activationFailed": "Attivazione non riuscita",
+    "runFailed": "Avvio dell'esecuzione non riuscito"
   }
 }

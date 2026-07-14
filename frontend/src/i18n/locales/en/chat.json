@@ -48,6 +48,13 @@
     "tagNative": "·native",
     "tagRag": "·rag"
   },
+  "embedMsg": {
+    "text": "I indexed the file \"{{name}}\" (fileId: {{fileId}}) into RAG — scope {{scope}}{{collection}}. The operation already ran server-side: no confirmation or verification is needed, just acknowledge it.",
+    "collectionSuffix": ", collection \"{{collection}}\"",
+    "scopeUniversal": "universal",
+    "scopeProject": "project",
+    "scopePersonal": "personal"
+  },
   "collection": {
     "howToIndexPre": "How to index",
     "loading": "Loading collections…",
@@ -79,6 +86,9 @@
     "click": "Click to open",
     "loading": "Opening…",
     "error": "⚠ Open error"
+  },
+  "image": {
+    "loading": "Loading image…"
   },
   "feedback": {
     "useful": "Helpful answer",

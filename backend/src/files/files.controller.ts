@@ -40,6 +40,18 @@ import {DataSourcesService} from '../datasources/datasources.service';
 function uploadDirAbs(): string  { return resolve(process.env.UPLOAD_DIR ?? './uploads'); }
 function skillsOutAbs(): string  { return resolve(process.env.SKILLS_OUTPUT_DIR ?? './uploads/skills-output'); }
 
+/**
+ * Max upload size in bytes from MAX_UPLOAD_MB (default 50 MB). Read from
+ * process.env at decorator-evaluation time: in Docker the var is real process
+ * env (env_file), so this is safe; changing it requires a backend restart.
+ * The nginx proxy in the frontend container enforces the same env var
+ * (client_max_body_size) — the request must pass both.
+ */
+function maxUploadBytes(): number {
+  const mb = Number(process.env.MAX_UPLOAD_MB);
+  return (Number.isFinite(mb) && mb > 0 ? mb : 50) * 1024 * 1024;
+}
+
 // NB: the guard is applied PER METHOD (not at the controller level) because
 // GET /api/files/stream uses FileStreamAccessGuard (JWT bearer OR signed ?token=),
 // while the other endpoints require the standard JWT bearer.
@@ -87,7 +99,7 @@ export class FilesController {
         destination: './uploads',
         filename: (_req, file, cb) => cb(null, `${uuidv4()}${extname(file.originalname)}`),
       }),
-      limits: { fileSize: 50 * 1024 * 1024 },
+      limits: { fileSize: maxUploadBytes() },
     }),
   )
   async upload(
@@ -286,18 +298,26 @@ export class FilesController {
     }
     const skillsRoot = skillsOutAbs();
     const userSkills = join(skillsRoot, userId || '_shared');
-    // (root, extra-guard). Skill outputs: only the caller's OWN per-user subdir.
-    // Uploads: the flat UPLOAD_DIR, but NEVER reaching into the shared skills-output
-    // tree (guards the per-user confinement when SKILLS_OUTPUT_DIR is nested under
-    // UPLOAD_DIR — otherwise a ?rel=skills-output/<otherUser>/x would bypass it).
-    const roots: Array<[string, (real: string) => boolean]> = [
-      [userSkills, () => true],
-      [uploadDirAbs(), (real) => real !== skillsRoot && !real.startsWith(skillsRoot + sep)],
+    // Skills compute their download_url relative to the PARENT of
+    // SKILLS_OUTPUT_DIR (job layout convention → "skills-output/<path>"), while
+    // the per-tenant confinement resolves rel against the caller's own subdir:
+    // accept the prefixed form by stripping it for the skills root only. The
+    // confinement is unchanged — the stripped rel still resolves (and is
+    // containment-checked) inside the caller's own subdir.
+    const relForSkills = relPath.replace(/^skills-output\//, '');
+    // (root, rel, extra-guard). Skill outputs: only the caller's OWN per-user
+    // subdir. Uploads: the flat UPLOAD_DIR, but NEVER reaching into the shared
+    // skills-output tree (guards the per-user confinement when SKILLS_OUTPUT_DIR
+    // is nested under UPLOAD_DIR — otherwise a ?rel=skills-output/<otherUser>/x
+    // would bypass it).
+    const roots: Array<[string, string, (real: string) => boolean]> = [
+      [userSkills, relForSkills, () => true],
+      [uploadDirAbs(), relPath, (real) => real !== skillsRoot && !real.startsWith(skillsRoot + sep)],
     ];
-    for (const [dir, ok] of roots) {
+    for (const [dir, rel, ok] of roots) {
       let realDir: string;
       try { realDir = realpathSync(dir); } catch { continue; } // nonexistent root → skip
-      const candidate = resolve(join(realDir, relPath));
+      const candidate = resolve(join(realDir, rel));
       let real: string;
       try {
         // Must exist AND be a regular file: a directory (e.g. rel='.') is not downloadable.

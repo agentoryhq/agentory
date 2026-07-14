@@ -12,6 +12,10 @@ RUN npm run build
 
 FROM nginx:alpine
 COPY --from=builder /app/dist /usr/share/nginx/html
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+# Template processed by the nginx image's envsubst entrypoint at container
+# start (→ /etc/nginx/conf.d/default.conf). MAX_UPLOAD_MB here is only the
+# fallback: docker-compose overrides it from the root .env.
+COPY nginx.conf.template /etc/nginx/templates/default.conf.template
+ENV MAX_UPLOAD_MB=50
 EXPOSE 80
 CMD ["nginx", "-g", "daemon off;"]

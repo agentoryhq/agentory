@@ -312,13 +312,18 @@ export class McpProcess extends EventEmitter {
       throw new Error(errContent?.text ?? 'Tool call error')
     }
 
-    // Combine text content
-    const text = (result?.content ?? [])
+    // Text-only results travel as plain text. When non-text blocks are present
+    // (e.g. base64 screenshots) the STRUCTURED result is sent instead: the
+    // backend sanitizes it (extracts the text, saves images as downloadable
+    // files) — the old text-only join silently dropped the images.
+    const blocks = result?.content ?? []
+    const text = blocks
       .filter((c): c is { type: 'text'; text: string } => c.type === 'text')
       .map(c => c.text)
       .join('\n')
+    const hasBinary = blocks.some(c => c.type !== 'text')
 
-    return text || JSON.stringify(result)
+    return hasBinary || !text ? JSON.stringify(result) : text
   }
 
   async stop(): Promise<void> {

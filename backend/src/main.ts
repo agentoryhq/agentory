@@ -14,6 +14,19 @@ import {I18nExceptionFilter} from './common/i18n-exception.filter';
 // With 6 tools the default of 10 is exceeded — we raise the global limit.
 setMaxListeners(30);
 
+/**
+ * Socket.IO adapter with a raised frame-size limit (engine-wide, all namespaces).
+ * The default maxHttpBufferSize (1 MB) makes the server DROP the connection on
+ * the first oversized frame: MCP bridge tool results can carry multi-MB payloads
+ * (e.g. base64 screenshots) and were killing the bridge socket. Oversized binary
+ * content is then sanitized before reaching the LLM (McpServersService).
+ */
+class AppIoAdapter extends IoAdapter {
+  createIOServer(port: number, options?: any): any {
+    return super.createIOServer(port, { ...options, maxHttpBufferSize: 32 * 1024 * 1024 });
+  }
+}
+
 async function bootstrap() {
   // Fail-fast: without a valid TOOL_SECRETS_KEY (hex-64) the secrets cannot be
   // encrypted/decrypted securely → the app must not even start.
@@ -31,8 +44,8 @@ async function bootstrap() {
   app.use(bodyParser.json({ limit: '20mb' }));
   app.use(bodyParser.urlencoded({ extended: true, limit: '20mb' }));
 
-  // Enable Socket.IO for the MCP bridge
-  app.useWebSocketAdapter(new IoAdapter(app));
+  // Enable Socket.IO for the MCP bridge (raised frame-size limit, see AppIoAdapter)
+  app.useWebSocketAdapter(new AppIoAdapter(app));
 
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
 

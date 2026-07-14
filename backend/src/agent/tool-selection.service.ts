@@ -27,6 +27,7 @@
 import { Injectable, Logger, Inject } from '@nestjs/common';
 import { EmbeddingProviderService } from '../embed/embedding.provider.service';
 import { ToolLoadingStrategy, ToolSchemaFormat } from '../app-config/app-config.entity';
+import { toolsNotLoadedBlock } from '../prompts/prompts';
 
 // ── Public types ──────────────────────────────────────────────────────────────
 
@@ -116,16 +117,35 @@ export class ToolSelectionService {
    *                  (null = no filter, includes all)
    *   toolListText:  <available_tools>…</available_tools> text to inject into the
    *                  system prompt (non-null only in deferred mode)
+   *   excludedListText: <tools_not_loaded> catalog of the tools FILTERED OUT by
+   *                  the selection (non-null only when top-K actually excluded
+   *                  some) — without it the model denies capabilities that exist
    */
   async applyStrategy(
     allTools: ToolManifest[],
     userInput: string,
     config: ToolLoadingConfig,
-  ): Promise<{ tools: any[]; selectedNames: Set<string> | null; toolListText: string | null }> {
-    if (allTools.length === 0) return { tools: [], selectedNames: null, toolListText: null };
+  ): Promise<{
+    tools: any[];
+    selectedNames: Set<string> | null;
+    toolListText: string | null;
+    excludedListText: string | null;
+  }> {
+    if (allTools.length === 0) {
+      return { tools: [], selectedNames: null, toolListText: null, excludedListText: null };
+    }
 
     // Axis 1: Selection — determine the manifests to expose
     const { manifests, selectedNames } = await this.selectTools(allTools, userInput, config);
+
+    // Tools filtered out by the selection: the model must know they exist
+    // (name + one-liner) or it will claim the capability is missing.
+    const excluded = selectedNames
+      ? allTools.filter(t => !selectedNames.has(t.name))
+      : [];
+    const excludedListText = excluded.length
+      ? toolsNotLoadedBlock(excluded.map(m => `- ${m.name}: ${this.oneLiner(m.description)}`))
+      : null;
 
     // Axis 2: Schema format
     if (config.schemaFormat === 'deferred') {
@@ -135,7 +155,7 @@ export class ToolSelectionService {
       this.logger.debug(
         `[${config.strategy}/deferred] ${allTools.length} → ${manifests.length} minimal tools + list in prompt`,
       );
-      return { tools, selectedNames, toolListText };
+      return { tools, selectedNames, toolListText, excludedListText };
     }
 
     const formatted = config.schemaFormat === 'compressed'
@@ -146,7 +166,7 @@ export class ToolSelectionService {
       `[${config.strategy}/${config.schemaFormat}] ${allTools.length} → ${manifests.length} tool`,
     );
 
-    return { tools: formatted, selectedNames, toolListText: null };
+    return { tools: formatted, selectedNames, toolListText: null, excludedListText };
   }
 
   /** Invalidates the embedding cache (call when tools are modified/deleted). */
@@ -369,13 +389,31 @@ export class ToolSelectionService {
     // If already short do not create a pointless proxy
     if (shortDesc.length >= desc.length * 0.85) return tool;
 
+    // The truncated docs stay reachable: AgentService exposes them via the
+    // get_tool_instructions meta-tool — tell the model where to look.
+    const compressed = `${shortDesc}. Full instructions: call get_tool_instructions('${tool.name}').`;
+
     return new Proxy(tool, {
       get(target, prop) {
-        if (prop === 'description') return shortDesc;
+        if (prop === 'description') return compressed;
         const val = (target as any)[prop];
         return typeof val === 'function' ? val.bind(target) : val;
       },
     });
+  }
+
+  /**
+   * First meaningful sentence of a description, for one-line tool catalogs.
+   * Fallback to the flattened prefix: descriptions starting with a newline or
+   * a very short fragment (e.g. MCP docstrings) must not yield an empty line —
+   * in the catalogs this line is all the model sees about the tool.
+   */
+  private oneLiner(description: string): string {
+    const firstSentence = (description ?? '').split(/[.!?\n]/)[0].trim();
+    return (firstSentence.length >= 10
+      ? firstSentence
+      : (description ?? '').replace(/\s+/g, ' ').trim()
+    ).slice(0, 120);
   }
 
   // ── Axis 2 deferred: format helpers ───────────────────────────────────────
@@ -392,10 +430,7 @@ export class ToolSelectionService {
    *   that serves the SKILL.md on-demand without pre-loading it.
    */
   buildDeferredFormat(manifests: ToolManifest[]): { tools: any[]; toolListText: string } {
-    const lines = manifests.map(m => {
-      const oneLiner = m.description.split(/[.!?\n]/)[0].trim().slice(0, 120);
-      return `- ${m.name}: ${oneLiner}`;
-    });
+    const lines = manifests.map(m => `- ${m.name}: ${this.oneLiner(m.description)}`);
 
     const toolListText = [
       '<available_tools>',
@@ -418,7 +453,9 @@ export class ToolSelectionService {
     // If the description is already short do not create a pointless proxy
     if (tool.description.length <= 40) return tool;
 
-    const minDesc = `Tool: ${tool.name ?? 'unknown'}. See <available_tools> in system prompt.`;
+    const minDesc =
+      `Tool: ${tool.name ?? 'unknown'}. See <available_tools> in system prompt; ` +
+      `full instructions: get_tool_instructions('${tool.name ?? 'unknown'}').`;
     return new Proxy(tool, {
       get(target, prop) {
         if (prop === 'description') return minDesc;

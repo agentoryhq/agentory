@@ -5,7 +5,7 @@ import Store from 'electron-store'
 import { setupTray, updateTrayStatus } from './tray'
 import { APP_ID } from './app.config'
 import { setAutostart, isAutostartEnabled } from './autostart'
-import { BridgeManager } from './bridge'
+import { BridgeManager, DisabledToolsMap } from './bridge'
 import { checkDependencies } from './deps-checker'
 
 // Suppress deprecation warnings in dev
@@ -17,13 +17,15 @@ export interface AppConfig {
   autostart: boolean
 }
 
-const store = new Store<{ config: AppConfig }>({
+const store = new Store<{ config: AppConfig; disabledTools: DisabledToolsMap }>({
   defaults: {
     config: {
       serverUrl: '',
       token: '',
       autostart: false
-    }
+    },
+    // serverId → tools the user turned off; survives restarts
+    disabledTools: {}
   }
 })
 
@@ -139,6 +141,14 @@ function setupIpcHandlers(): void {
   ipcMain.handle('check-deps', async () => {
     return checkDependencies()
   })
+
+  ipcMain.handle(
+    'set-tool-enabled',
+    (_event, serverId: string, toolName: string, enabled: boolean) => {
+      bridgeManager?.setToolEnabled(serverId, toolName, enabled)
+      return { success: true }
+    }
+  )
 }
 
 function emitToRenderer(channel: string, data: unknown): void {
@@ -173,16 +183,20 @@ app.whenReady().then(async () => {
   setupIpcHandlers()
 
   // Init bridge manager
-  bridgeManager = new BridgeManager((channel, data) => {
-    emitToRenderer(channel, data)
-    // Update tray based on status
-    if (channel === 'status-change') {
-      const status = data as { connected: boolean; connecting: boolean }
-      if (status.connected) updateTrayStatus('connected')
-      else if (status.connecting) updateTrayStatus('connecting')
-      else updateTrayStatus('disconnected')
-    }
-  })
+  bridgeManager = new BridgeManager(
+    (channel, data) => {
+      emitToRenderer(channel, data)
+      // Update tray based on status
+      if (channel === 'status-change') {
+        const status = data as { connected: boolean; connecting: boolean }
+        if (status.connected) updateTrayStatus('connected')
+        else if (status.connecting) updateTrayStatus('connecting')
+        else updateTrayStatus('disconnected')
+      }
+    },
+    store.get('disabledTools'),
+    (map) => store.set('disabledTools', map)
+  )
 
   // Setup tray
   setupTray({

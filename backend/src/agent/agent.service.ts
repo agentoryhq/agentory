@@ -868,14 +868,27 @@ export class AgentService implements OnModuleInit {
         : fullManifests.filter((m) => (toolOverride.names ?? []).includes(m.name));
 
     // ── Phase 2a: tool selection + schema format ──────────────────────────────
+    // Short follow-ups ("retry", "yes, go ahead") carry no semantic signal for
+    // the per-message tool selection: without context the top-K would drop the
+    // tools elected in the previous turn. Enrich the SELECTION query (only —
+    // the model input is untouched) with the last substantial user message.
+    const MIN_SELECTION_SIGNAL = 40;
+    let selectionQuery = userInput ?? '';
+    if (selectionQuery.trim().length < MIN_SELECTION_SIGNAL) {
+      const prevUser = [...history].reverse().find(
+        (m) => m.role === 'user' && (m.content ?? '').trim().length >= MIN_SELECTION_SIGNAL,
+      );
+      if (prevUser) selectionQuery = `${prevUser.content}\n${selectionQuery}`;
+    }
+
     // applyStrategy returns:
     //   tools         → effective tools for createReactAgent
     //   selectedNames → RAG-selected names for the SKILL.md filter (null = all)
     //   toolListText  → <available_tools>…</available_tools> (non-null only if deferred)
-    const { tools: optimizedExtraTools, selectedNames: selectedToolNames, toolListText } =
+    const { tools: optimizedExtraTools, selectedNames: selectedToolNames, toolListText, excludedListText } =
       await this.toolSelection.applyStrategy(
         allExtraManifests,
-        userInput ?? '',
+        selectionQuery,
         effectiveConfig,
       );
 
@@ -911,6 +924,27 @@ export class AgentService implements OnModuleInit {
       skillsPrompt = userId
         ? await this.skillsService.buildSkillSystemPromptSelective(userId, projectId, selectedToolNames)
         : '';
+
+      // COMPRESSED loses everything past the first sentence of each tool
+      // description. Skills keep their SKILL.md in the system prompt, but
+      // custom/MCP/flow/agent tools have no other doc channel: expose the
+      // same get_tool_instructions meta-tool serving the FULL original
+      // descriptions on demand (the compressed description points at it).
+      if (effectiveConfig.schemaFormat === 'compressed') {
+        const fullDescMap = new Map<string, string>();
+        for (const m of allExtraManifests) {
+          if (!selectedToolNames || selectedToolNames.has(m.name)) {
+            if (m.description?.trim()) fullDescMap.set(m.name, m.description);
+          }
+        }
+        if (fullDescMap.size) deferredMetaTool = this.buildGetToolInstructions(fullDescMap);
+      }
+    }
+
+    // Catalog of the tools filtered out by top-K selection: without it the
+    // model denies capabilities that exist but were not loaded for this message.
+    if (excludedListText) {
+      skillsPrompt = skillsPrompt ? `${skillsPrompt}\n\n${excludedListText}` : excludedListText;
     }
 
     const userPrompt    = user?.systemPrompt;

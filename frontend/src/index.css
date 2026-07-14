@@ -565,3 +565,44 @@ html:not(.dark) .bg-gray-800.border { border-color: #e2e8f0; }
 /* ── React Flow — minimap/controls legible in the light theme too ───────────── */
 html:not(.dark) .react-flow__minimap { background-color: #f1f5f9 !important; }
 html:not(.dark) .react-flow__controls-button { background: #ffffff; border-color: #e2e8f0; color: #334155; }
+
+/* ── Remaining opacity steps and -950 shades ──────────────────────────────────
+ * Each opacity step is a DISTINCT class (`.bg-gray-800\/30` is not matched by the
+ * `.bg-gray-800` rule), so a step that is missing here keeps its dark value in the
+ * light theme: dark card, unreadable text. Same for the -950 shades, which have no
+ * -900 counterpart to fall back on. Values mirror the ones already chosen per colour
+ * above; keep this in sync when a component introduces a new step.
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+/* — Gray — */
+html:not(.dark) .bg-gray-900\/95 { background-color: rgb(255 255 255 / 0.95); }
+html:not(.dark) .bg-gray-900\/40 { background-color: rgb(255 255 255 / 0.4); }
+html:not(.dark) .bg-gray-800\/70 { background-color: rgb(248 250 252 / 0.7); }
+html:not(.dark) .bg-gray-800\/30 { background-color: rgb(248 250 252 / 0.3); }
+
+html:not(.dark) .hover\:bg-gray-900\/70:hover,
+html:not(.dark) .hover\:bg-gray-900\/50:hover { background-color: #f8fafc; }
+html:not(.dark) .hover\:bg-gray-800\/60:hover,
+html:not(.dark) .hover\:bg-gray-800\/50:hover,
+html:not(.dark) .hover\:bg-gray-800\/40:hover,
+html:not(.dark) .hover\:bg-gray-800\/30:hover { background-color: #f1f5f9; }
+html:not(.dark) .hover\:bg-gray-700\/60:hover { background-color: #e2e8f0; }
+
+/* — Colours: -950 shades and steps missing above — */
+html:not(.dark) .bg-amber-950\/40 { background-color: #fef3c7; }    /* amber-100   */
+html:not(.dark) .bg-amber-950\/30,
+html:not(.dark) .bg-amber-950\/20,
+html:not(.dark) .bg-amber-950\/10 { background-color: #fffbeb; }    /* amber-50    */
+
+html:not(.dark) .bg-red-900\/50,
+html:not(.dark) .bg-red-950\/80,
+html:not(.dark) .bg-red-950\/50 { background-color: #fee2e2; }      /* red-100     */
+html:not(.dark) .bg-red-950\/30 { background-color: #fef2f2; }      /* red-50      */
+
+html:not(.dark) .bg-blue-950\/40 { background-color: #dbeafe; }     /* blue-100    */
+html:not(.dark) .bg-blue-950\/20,
+html:not(.dark) .bg-blue-950\/10 { background-color: #eff6ff; }     /* blue-50     */
+
+html:not(.dark) .bg-indigo-950\/40 { background-color: #e0e7ff; }   /* indigo-100  */
+html:not(.dark) .bg-emerald-950\/40 { background-color: #d1fae5; }  /* emerald-100 */
+html:not(.dark) .bg-green-900\/50 { background-color: #dcfce7; }    /* green-100   */

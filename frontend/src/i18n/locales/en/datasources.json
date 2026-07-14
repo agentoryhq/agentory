@@ -39,6 +39,7 @@
     "sectionConnection": "Connection",
     "sectionSchema": "Schema",
     "closeSaved": "Close",
+    "unsavedSchemaConfirm": "You have unsaved schema changes (hidden tables/columns, comments, relations). Closing will discard them. Close anyway?",
     "saving": "Saving…",
     "saveChanges": "Save changes",
     "createSource": "Create source",

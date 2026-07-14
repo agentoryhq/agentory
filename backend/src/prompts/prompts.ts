@@ -140,6 +140,9 @@ export const RUN_IN_SANDBOX_DESC =
   'Runs arbitrary code or shell commands in an isolated environment and evaluates them. ' +
   'Use it for calculations, data transformations, scripting, file analysis, or to build on the fly ' +
   'functionality not covered by other tools. ' +
+  'If a dedicated skill/tool exists for the task or file type (e.g. a format-specific analyzer), ' +
+  'ALWAYS try it first with the arguments its description asks for — the sandbox is the fallback, ' +
+  'not the first choice. ' +
   'The working directory IS the persistent workspace of this chat: files written remain available in subsequent turns, ' +
   'so you can save a function/script and reuse it. ALWAYS use relative paths (`./file`, `skills/<name>/…`); ' +
   'NEVER absolute paths like `/workspace` (the absolute location varies with the execution mode). ' +
@@ -162,11 +165,55 @@ export const RUN_IN_SANDBOX_DESC =
   'are in the shared dir in env `SKILLS_OUTPUT_DIR` (copy what you need, e.g. `cp "$SKILLS_OUTPUT_DIR/report.csv" .`). ' +
   'Files UPLOADED in chat are staged into `inputs/` in the workspace: look there first (`ls inputs/`). ' +
   'If a file is not there, tell the user instead of hunting for it on the filesystem. ' +
-  'To DELIVER a file to the user (downloadable/attachable in chat) write it in the dir in env `SKILLS_OUTPUT_DIR` ' +
-  '(NOT only in the workspace, which stays private to the session), then give the user a CLICKABLE Markdown link ' +
-  'in your reply: `[<filename>](/api/files/raw?rel=<filename>)` (Markdown link syntax, not a bare URL). ' +
+  'DELIVERING FILES TO THE USER — read this before writing any file: a file written ONLY in the workspace is ' +
+  'PRIVATE to the session, so the user gets NO download link and cannot see it in the files panel. For EVERY file ' +
+  'you create, decide whether the USER wants it. Any user-facing artifact (a report, an export, a generated ' +
+  'document/image, or any file the user asked for) MUST be written to the dir in env `SKILLS_OUTPUT_DIR` (not only ' +
+  'in the workspace), and you MUST then give the user a CLICKABLE Markdown link in your reply: ' +
+  '`[<filename>](/api/files/raw?rel=<filename>)` (Markdown link syntax, not a bare URL). Keep in the workspace only ' +
+  'genuinely intermediate/private files. If you realize you produced a file the user may want but left it in the ' +
+  'workspace, re-write it to `SKILLS_OUTPUT_DIR` (or at least tell the user) — never leave it silently unreachable. ' +
+  'Deliver only NEW artifacts you produced: never copy the user\'s own input file back to `SKILLS_OUTPUT_DIR` as a ' +
+  'deliverable (they already have it), and give every file an extension that matches its CONTENT ' +
+  '(extracted data → `.json`/`.csv`, a report → `.md`/`.pdf` — not the source file\'s extension). ' +
   'The script\'s stdout is the result you receive: print what you need to see. ' +
   'For recurring tasks, consider saving them as a reusable skill instead of regenerating the code every time.';
+
+/**
+ * Default description of the org-wide 'rag' search tool auto-created when an
+ * admin creates a vector collection (VectorDbController). It is SEEDED into
+ * `custom_tools.description` and stays admin-editable there afterwards: this
+ * is only the template for newly created tools.
+ */
+export function ragSearchToolDescription(
+  collection: string,
+  collectionDescription?: string | null,
+): string {
+  return (
+    `Semantic search in the "${collection}" knowledge base (vector collection). ` +
+    `Use it when the user asks about topics or documents that may have been indexed there ` +
+    `(uploaded files, embedded notes). Do not use it for questions unrelated to stored documents.` +
+    (collectionDescription ? ` Collection content: ${collectionDescription}` : '')
+  );
+}
+
+/**
+ * Injected when the tool-selection strategy (top-K) filtered tools out: a
+ * compact catalog of the NOT-loaded tools plus the rule that the model must
+ * never deny a capability that exists but was not selected for this message.
+ */
+export function toolsNotLoadedBlock(lines: string[]): string {
+  return [
+    '<tools_not_loaded>',
+    ...lines,
+    '</tools_not_loaded>',
+    'The tools listed above exist but are NOT loaded for this message: the platform ' +
+    'selects, per message, the tools most relevant to the user\'s text. NEVER claim a ' +
+    'capability from this list is unavailable. If the current task needs one of these ' +
+    'tools, tell the user the capability exists and ask them to resend the request ' +
+    'naming that operation explicitly — the tool will then be loaded automatically.',
+  ].join('\n');
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Background prompts (run on the summarizer model, off the interactive path)

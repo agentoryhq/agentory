@@ -57,6 +57,9 @@ services:
       dockerfile: Dockerfile
       args:
         MODEL_NAME: ${EMBEDDING_MODEL:-mixedbread-ai/mxbai-embed-large-v1}
+        # Also a build-arg, not just runtime: on 'cpu' the image is built without the
+        # CUDA wheels (see embedding-service/Dockerfile). Rebuild after changing it.
+        EMBEDDING_DEVICE: ${EMBEDDING_DEVICE:-cpu}
     restart: unless-stopped
     environment:
       EMBEDDING_MODEL: ${EMBEDDING_MODEL:-mixedbread-ai/mxbai-embed-large-v1}
@@ -140,6 +143,12 @@ services:
       interval: 15s
       timeout: 5s
       retries: 3
+      # On the FIRST start with an empty /nix volume the entrypoint installs single-user
+      # Nix + updates the nixpkgs channel synchronously before node listens — this can take
+      # a couple of minutes. Without a grace window the container is marked unhealthy at ~45s
+      # and the backend's depends_on aborts the whole `up`. Failures during start_period do
+      # not count, so node has time to come up on a cold /nix volume.
+      start_period: 180s
     # No port exposed to the host: reachable only by the backend (internal network)
 
   backend:
@@ -203,6 +212,10 @@ services:
         VITE_API_URL: /api
         VITE_APP_NAME: ${VITE_APP_NAME:-Agentory}
     restart: unless-stopped
+    environment:
+      # Upload cap for the nginx proxy (client_max_body_size, via the envsubst
+      # template). Same env drives the backend Multer limit (there via env_file).
+      MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-50}
     ports:
       - "5173:80"                # public SPA entry point
     depends_on:

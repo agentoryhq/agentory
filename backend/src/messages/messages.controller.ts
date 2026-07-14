@@ -316,12 +316,30 @@ export class MessagesController {
             if (abs === userOutDir || abs.startsWith(userOutDir + sep)) emit(abs);
           };
 
+          /**
+           * Candidate names for a captured `?rel=<x>`. These links are emitted both BARE
+           * (`- f: /api/files/raw?rel=f`) and inside a markdown link/image
+           * (`[f](/api/files/raw?rel=f)`), so the capture may carry a trailing markdown
+           * terminator — but a filename can legitimately end with one too, since
+           * encodeURIComponent does not escape `)` (e.g. `report(1).pdf`). The two cases
+           * are lexically indistinguishable, so we try both: emit() only surfaces names
+           * that resolve to an existing file, and dedups.
+           */
+          const relCandidates = (captured: string): string[] => {
+            let decoded: string;
+            try { decoded = decodeURIComponent(captured); } catch { decoded = captured; }
+            const trimmed = decoded.replace(/[)\]>]+$/, '');
+            return trimmed && trimmed !== decoded ? [decoded, trimmed] : [decoded];
+          };
+
           function walk(value: any): void {
             if (typeof value === 'string') {
               // (a) a ?rel=<x> in one of OUR download URLs → surface the output it points to
               const relMatches = [...value.matchAll(/[?&]rel=([^&\s'"]+)/g)];
               if (relMatches.length) {
-                for (const rm of relMatches) emitFromName(decodeURIComponent(rm[1]));
+                for (const rm of relMatches) {
+                  for (const name of relCandidates(rm[1])) emitFromName(name);
+                }
                 return;
               }
               if (!value.includes('/') || value.startsWith('http') || value.startsWith('/api/')) return;

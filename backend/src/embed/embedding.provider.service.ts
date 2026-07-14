@@ -126,6 +126,29 @@ export class EmbeddingProviderService {
     return client;
   }
 
+  /** Query prefix as configured in the UI (empty = not set). */
+  private resolveQueryPrefix(dbValue: string | null | undefined): string {
+    return (dbValue ?? '').replace(/\\n/g, '\n');
+  }
+
+  /**
+   * Retrieval models are asymmetric: the query carries an instruction, the indexed document
+   * does not. For the bundled 'internal' service we don't hardcode that instruction — we tag
+   * the side (`input_type`) and the service applies the prompt the loaded MODEL declares.
+   *
+   * A prefix configured in the UI WINS: it is prepended here (see `embed`), and we then leave
+   * `input_type` off so the service adds nothing on top of it — no double prompt.
+   * `input_type` is an extension to the OpenAI schema, sent only to our own service.
+   */
+  private inputTypeFor(
+    config: EmbeddingRuntimeConfig,
+    side: 'query' | 'document',
+  ): Record<string, string> {
+    if (config.provider !== 'internal') return {};
+    if (side === 'query' && config.queryPrefix) return {};
+    return { input_type: side };
+  }
+
   /**
    * Resolves the runtime configuration reading first from the DB, then from the env vars
    * as a fallback for backward compatibility.
@@ -147,7 +170,7 @@ export class EmbeddingProviderService {
             apiKey:      null,
             baseUrl,
             vectorSize:  probed?.dims ?? dbConfig.embeddingVectorSize,
-            queryPrefix: (dbConfig.embeddingQueryPrefix ?? '').replace(/\\n/g, '\n'),
+            queryPrefix: this.resolveQueryPrefix(dbConfig.embeddingQueryPrefix),
             docPrefix:   '',
             chunkSize:   dbConfig.embeddingChunkSize,
             chunkOverlap: dbConfig.embeddingChunkOverlap,
@@ -164,7 +187,7 @@ export class EmbeddingProviderService {
           apiKey:      apiKeyRaw,
           baseUrl:     dbConfig.embeddingBaseUrl ?? DEFAULT_BASE_URLS[dbConfig.embeddingProvider] ?? null,
           vectorSize:  dbConfig.embeddingVectorSize,
-          queryPrefix: (dbConfig.embeddingQueryPrefix ?? '').replace(/\\n/g, '\n'),
+          queryPrefix: this.resolveQueryPrefix(dbConfig.embeddingQueryPrefix),
           docPrefix:   '',   // docPrefix is not exposed in the UI (used only internally)
           chunkSize:   dbConfig.embeddingChunkSize,
           chunkOverlap: dbConfig.embeddingChunkOverlap,
@@ -286,6 +309,7 @@ export class EmbeddingProviderService {
       model: config.model,
       input,
       encoding_format: 'float', // Explicit to avoid the base64 bug with local servers
+      ...this.inputTypeFor(config, 'query'),
     };
     if (config.provider === 'openai') embedParams.dimensions = config.vectorSize;
 
@@ -321,6 +345,7 @@ export class EmbeddingProviderService {
       model:           config.model,
       input:           inputs,
       encoding_format: 'float',
+      ...this.inputTypeFor(config, 'query'),
     };
     if (config.provider === 'openai') batchParams.dimensions = config.vectorSize;
 
@@ -351,6 +376,7 @@ export class EmbeddingProviderService {
       model: config.model,
       input: inputs,
       encoding_format: 'float',
+      ...this.inputTypeFor(config, 'document'),
     };
     if (config.provider === 'openai') batchParams.dimensions = config.vectorSize;
 

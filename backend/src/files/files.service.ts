@@ -320,7 +320,12 @@ export class FilesService {
       file = await this.assertReadableByAbsPath(abs, userId); // tracked → canAccess; not tracked → null
     }
     if (!file) return null;
-    return { hostPath: resolve(file.storagePath), name: basename(file.storagePath) };
+    // Stage under the (sanitized) original name, not the storage uuid: scripts
+    // see a meaningful filename and derive readable output names from it.
+    const safeName = (file.originalName ?? '')
+      .replace(/[^\w.\-]+/g, '_')
+      .replace(/^[_.]+/, '');
+    return { hostPath: resolve(file.storagePath), name: safeName || basename(file.storagePath) };
   }
 
   /**

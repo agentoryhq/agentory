@@ -38,7 +38,19 @@ const SANDBOX_ROOT = process.env.BROKER_SANDBOX_ROOT ? path.resolve(process.env.
 // Shared skills-output host dir: if configured, the sandbox job mounts it at /output
 // (writable) and SKILLS_OUTPUT_DIR=/output → deliverables become downloadable/attachable.
 const SANDBOX_OUTPUT = process.env.BROKER_SANDBOX_OUTPUT ? path.resolve(process.env.BROKER_SANDBOX_OUTPUT) : '';
-// Host path of the Nix store (mounted /nix:ro in jobs that have system.nix deps).
+// Nix store shared into jobs that have system.nix deps (mounted /nix:ro): the binaries
+// in the /skill/.nix/bin profile are symlinks into /nix/store, so the SAME store the
+// executor installed into must be visible in the job. Two ways to point at it:
+//   • BROKER_NIX_VOLUME — a Docker NAMED VOLUME (e.g. agentory_nix_store). Preferred:
+//     it is the very volume the executor mounts at /nix, shared by name to the sibling
+//     job (`docker run -v <vol>:/nix:ro`). Portable (Mac/Linux), no host-path guessing,
+//     stays on the fast VM filesystem. This is the default in the broker overlay.
+//   • BROKER_NIX_STORE — an absolute HOST PATH to a /nix store (real host Nix install).
+// If both are set the named volume wins.
+const NIX_VOLUME = process.env.BROKER_NIX_VOLUME || '';
+// Memoized "the named volume exists" flag (see verifyNixSource): only the SUCCESS is
+// cached — a first-job miss must be re-checkable once the executor has created it.
+let nixVolumeOk = false;
 const NIX_STORE = process.env.BROKER_NIX_STORE ? path.resolve(process.env.BROKER_NIX_STORE) : '';
 const RUNNER_IMAGE = process.env.BROKER_RUNNER_IMAGE || 'pa-executor:test';
 const NETWORK = process.env.BROKER_NETWORK || 'none';
@@ -241,8 +253,15 @@ function buildDockerArgs(body) {
     // Nix store (read-only) for skills with system.nix deps: the binaries in the
     // /skill/.nix/bin profile are symlinks into /nix/store → /nix must be mounted.
     if (nix) {
-        if (!NIX_STORE) return fail('nix required but BROKER_NIX_STORE not configured');
-        stateFlags.push('-v', `${NIX_STORE}:/nix:ro`);
+        if (NIX_VOLUME) {
+            // Share the executor's Nix store by NAMED VOLUME (docker resolves it on the
+            // same daemon → the exact store populated at skill-install time).
+            stateFlags.push('-v', `${NIX_VOLUME}:/nix:ro`);
+        } else if (NIX_STORE) {
+            stateFlags.push('-v', `${NIX_STORE}:/nix:ro`);
+        } else {
+            return fail('nix required but neither BROKER_NIX_VOLUME nor BROKER_NIX_STORE configured');
+        }
     }
 
     // Per-job ephemeral work dir (copy-in/out, writable): validated under WORK_ROOT.
@@ -313,9 +332,46 @@ function execAttached(dockerArgs, body, t0) {
     });
 }
 
-function runJob(body) {
+// Verify the configured Nix source actually exists BEFORE mounting it. A bare
+// `docker run -v <name>:/nix:ro` with a wrong/absent volume name does NOT fail: docker
+// silently creates an EMPTY named volume → /skill/.nix/bin symlinks dangle → a confusing
+// runtime error. Pre-checking with `docker volume inspect` turns that into a clear message.
+// (The volume's CONTENT isn't deep-verified: a job only sets nix=true when the skill has a
+// .nix profile, which the executor produces by installing into this very store.)
+function verifyNixSource() {
+    if (NIX_VOLUME) {
+        if (nixVolumeOk) return Promise.resolve({ok: true});
+        return new Promise((resolve) => {
+            execFile('docker', ['volume', 'inspect', NIX_VOLUME], {timeout: 10000}, (err) => {
+                if (err) return resolve({ok: false, reason:
+                    `nix store volume "${NIX_VOLUME}" not found — the executor must be up with a `
+                    + `system.nix skill installed (it creates it). Check BROKER_NIX_VOLUME matches the `
+                    + `executor's nix_store volume, or set BROKER_NIX_STORE to a host /nix path.`});
+                nixVolumeOk = true;
+                resolve({ok: true});
+            });
+        });
+    }
+    if (NIX_STORE) {
+        // Host path: must contain a store/ subdir to be a real /nix.
+        if (!fs.existsSync(path.join(NIX_STORE, 'store'))) return Promise.resolve({ok: false, reason:
+            `BROKER_NIX_STORE "${NIX_STORE}" is not a valid Nix store (no store/ subdir).`});
+        return Promise.resolve({ok: true});
+    }
+    return Promise.resolve({ok: false, reason:
+        'nix required but neither BROKER_NIX_VOLUME nor BROKER_NIX_STORE configured'});
+}
+
+async function runJob(body) {
+    // Fail fast with a clear message if a nix job's store isn't actually available,
+    // instead of letting docker auto-create an empty volume.
+    if (body && body.nix) {
+        const v = await verifyNixSource();
+        if (!v.ok) return {status: 400, payload: {error: v.reason}};
+    }
+
     const built = buildDockerArgs(body);
-    if (!built.ok) return Promise.resolve({status: 400, payload: {error: built.reason}});
+    if (!built.ok) return {status: 400, payload: {error: built.reason}};
 
     const t0 = Date.now();
     const nets = resolveJobNets(body).nets;   // already validated by buildDockerArgs

@@ -13,16 +13,19 @@
     "totalTokens": "total {{count}}",
     "toolLabel": "tools",
     "toolNone": "none",
-    "toolAll": "all"
+    "toolAll": "all",
+    "runStarted": "Run started: you'll get a notification when it finishes, with the outcome in chat too."
   },
   "actions": {
     "activate": "Activate",
+    "runNow": "Run now",
     "enableLabel": "enable",
     "deleteConfirm": "Delete this automation?"
   },
   "errors": {
     "operationFailed": "Operation failed",
     "deleteFailed": "Deletion failed",
-    "activationFailed": "Activation failed"
+    "activationFailed": "Activation failed",
+    "runFailed": "Could not start the run"
   }
 }
