@@ -1,6 +1,6 @@
 {
   "name": "agentory-bridge",
-  "version": "1.0.2",
+  "version": "1.1.0",
   "description": "Agentory Bridge — connects local MCP processes to the remote server",
   "main": "./out/main/index.js",
   "scripts": {

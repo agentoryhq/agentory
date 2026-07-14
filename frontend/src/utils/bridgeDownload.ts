@@ -4,13 +4,14 @@
 // Here we detect the visitor's OS (for the label) and point at the latest release,
 // whose assets are named per-OS/arch so the user picks the right installer.
 //
-// The repo slug lives in ONE place — `VITE_BRIDGE_REPO` (frontend/.env). Set it to
-// the public repo (e.g. `youracct/agentory`) when publishing.
+// The repo slug lives in ONE place — `VITE_BRIDGE_REPO` (frontend/.env). It defaults to the
+// public repo, where the releases actually live: a private fallback would 404 for everyone.
 
 export type BridgeOS = 'mac' | 'windows' | 'linux' | 'unknown';
 
-// Falls back to the current git remote; override via VITE_BRIDGE_REPO at build time.
-const REPO = (import.meta.env.VITE_BRIDGE_REPO as string | undefined) || 'andreagenovese/yesSir';
+// Public repo that hosts the bridge releases; override via VITE_BRIDGE_REPO at build time
+// (e.g. a fork publishing its own binaries).
+const REPO = (import.meta.env.VITE_BRIDGE_REPO as string | undefined) || 'agentoryhq/agentory';
 
 /** Best-effort OS detection from the browser, only used to label the button. */
 export function detectBridgeOS(): BridgeOS {
