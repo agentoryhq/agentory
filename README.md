@@ -30,6 +30,35 @@ The defensible combination, in one product:
 
 > **Data sovereignty is the point.** Bring your own LLM (Anthropic, OpenAI, Gemini, Ollama, LM Studio, DeepSeek, any OpenAI-compatible endpoint) or run models locally. Nothing leaves your perimeter unless you say so.
 
+## How it compares
+
+The two things an organization actually needs — **multi-tenant governance** and **OS-level isolation for untrusted code** — are exactly the two things the alternatives put behind an enterprise tier, a license restriction, or don't have at all.
+
+| | **Agentory** | Dify | n8n | Flowise | LibreChat | Open WebUI |
+|---|---|---|---|---|---|---|
+| **License** | AGPL-3.0 (OSI) | Modified Apache — *source-available* [^1] | Sustainable Use — *source-available* [^2] | Apache-2.0 core; `enterprise/` dir is proprietary [^3] | MIT (OSI) | BSD-3 + branding clause — *source-available* [^4] |
+| **Multi-tenant governance**<br/>*(free, self-hosted)* | ✅ Org · teams · users, with `personal / team / org` scoping on every resource | ❌ One workspace. Multiple = Enterprise — **and the license forbids operating multi-tenant** [^1] | ❌ Projects, RBAC and sharing are all excluded from Community [^2] | ❌ Workspaces are Cloud/Enterprise only [^3] | ⚠️ Custom roles + per-resource ACLs + groups — but no org/tenant boundary | ⚠️ Groups + grant-only RBAC — but no org/tenant boundary |
+| **Untrusted code execution** | ✅ Container **per job** — cap-drop, read-only rootfs, non-root, egress allowlist, optional gVisor | ✅ `dify-sandbox`: seccomp allowlist, but **one container shared by all tenants** | ⚠️ Task runners default to **internal** mode — n8n's own docs call it "a security risk" in production; real isolation means opting into external mode [^5] | ⚠️ `vm2` in-process; Python only via the E2B **cloud** SaaS | ✅ NsJail / libkrun microVM (Apache-2.0, self-hostable) | ❌ Runs **in-process** — docs call it "root-equivalent". Per-user containers are enterprise-licensed |
+| **Deterministic workflows (DAG)** | ✅ 12 node types | ✅ | ✅ | ✅ | ❌ | ❌ |
+| **Stateful agent (tool loop)** | ✅ LangGraph ReAct | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **MCP client transports** | `http` · `sse` · `local` (stdio) · `remote` | HTTP only (no stdio) | SSE + streamable HTTP | stdio + SSE + HTTP | stdio + SSE + HTTP | Streamable HTTP only, **admin-only** |
+| **RAG** | ✅ Qdrant / PGVector / Chroma / Astra | ✅ | ✅ | ✅ | ✅ pgvector only, as a side service | ✅ |
+| **GitHub stars** | *just getting started* | ~149k | ~196k | ~55k | ~41k | ~145k |
+
+**Where they beat us — honestly.** All of them are years older, far more battle-tested, and have ecosystems we don't. n8n's integration catalogue (400+ nodes) is in a different league. Open WebUI and LibreChat are better *pure chat* clients, with more polish per screen. Dify has more model providers. If you want a mature single-workspace tool and multi-tenancy isn't a requirement, one of them is very likely the better call today.
+
+**Pick Agentory when** an organization — not one developer — has to run this: several teams, resources that must not leak across them, third-party code that must not touch the host, and data that must not leave the building.
+
+*Verified against licenses, docs and source on 2026-07-14. Something wrong or out of date? [Open an issue](https://github.com/agentoryhq/agentory/issues) — we'll fix the table.*
+
+[^1]: [Dify's LICENSE](https://raw.githubusercontent.com/langgenius/dify/main/LICENSE): *"you may not use the Dify source code to operate a multi-tenant environment"* — and *"one tenant corresponds to one workspace"* — plus a no-logo-removal clause. GitHub classifies it `NOASSERTION`. In fairness: the five built-in roles *do* ship in the community edition ([account.py](https://github.com/langgenius/dify/blob/main/api/models/account.py)); only the granular [RBAC service](https://github.com/langgenius/dify/blob/main/api/services/enterprise/rbac_service.py) is enterprise-gated. Single-workspace confirmed by [pricing](https://dify.ai/pricing) and by the absence of a create-workspace endpoint.
+[^2]: [n8n's Sustainable Use License](https://raw.githubusercontent.com/n8n-io/n8n/master/LICENSE.md): *"You may use or modify the software only for your own internal business purposes or for non-commercial or personal use."* Community exclusions (Projects, RBAC, sharing, SSO) per [n8n's own docs](https://docs.n8n.io/deploy/host-n8n/community-edition-features): *"In Community Edition, only the instance owner and the user who creates workflows or credentials can access them."*
+[^3]: [Flowise LICENSE.md](https://github.com/FlowiseAI/Flowise/blob/main/LICENSE.md): Apache-2.0 except `packages/server/src/enterprise` and `IdentityManager.ts`, which carry a proprietary Commercial License — and that is exactly where the multi-tenancy code lives. Without an enterprise key the platform stays `OPEN_SOURCE` and its feature set is empty ([IdentityManager.ts](https://github.com/FlowiseAI/Flowise/blob/main/packages/server/src/IdentityManager.ts)).
+[^4]: [Open WebUI's LICENSE](https://github.com/open-webui/open-webui/blob/main/LICENSE) (clause 4, since v0.6.6) forbids altering or removing its branding unless you have ≤50 end users in a rolling 30 days, written permission, or an enterprise license. To its credit, RBAC and SSO are *not* paywalled — but [per-user isolated execution containers are](https://github.com/open-webui/terminals/blob/main/LICENSE).
+[^5]: [n8n's task-runner docs](https://docs.n8n.io/deploy/host-n8n/configure-n8n/set-up-task-runners): *"Using internal mode in production environments can pose a security risk. For production deployments, use external mode."* Internal is the default. Two things people often get wrong and we won't repeat: n8n no longer uses `vm2`, and its Python is no longer Pyodide.
+
+*Everything above was read from the projects' own licenses, docs and source — not from secondary write-ups. Two claims worth correcting wherever you see them repeated: LibreChat's code interpreter is [no longer a paid hosted API](https://github.com/ClickHouse/code-interpreter) (Apache-2.0 and self-hostable since mid-2026), and Dify does ship roles in its community edition.*
+
 ## Screenshots
 
 |  |  |

@@ -30,6 +30,35 @@ La combinazione difendibile, in un solo prodotto:
 
 > **La sovranità del dato è il punto.** Usa il tuo LLM (Anthropic, OpenAI, Gemini, Ollama, LM Studio, DeepSeek, qualsiasi endpoint OpenAI-compatible) o esegui i modelli in locale. Nulla lascia il tuo perimetro se non lo decidi tu.
 
+## Come si colloca
+
+Le due cose di cui un'organizzazione ha davvero bisogno — **governance multi-tenant** e **isolamento a livello di sistema operativo per il codice non fidato** — sono esattamente le due che le alternative mettono dietro a un piano enterprise, a una restrizione di licenza, o non hanno affatto.
+
+| | **Agentory** | Dify | n8n | Flowise | LibreChat | Open WebUI |
+|---|---|---|---|---|---|---|
+| **Licenza** | AGPL-3.0 (OSI) | Apache modificata — *source-available* [^1] | Sustainable Use — *source-available* [^2] | Core Apache-2.0; la dir `enterprise/` è proprietaria [^3] | MIT (OSI) | BSD-3 + clausola sul branding — *source-available* [^4] |
+| **Governance multi-tenant**<br/>*(gratis, self-hosted)* | ✅ Org · team · utenti, con scoping `personal / team / org` su ogni risorsa | ❌ Un solo workspace. Multipli = Enterprise — **e la licenza vieta di operare in multi-tenant** [^1] | ❌ Progetti, RBAC e condivisione sono tutti esclusi dalla Community [^2] | ❌ I workspace sono solo Cloud/Enterprise [^3] | ⚠️ Ruoli custom + ACL per risorsa + gruppi — ma nessun confine di organizzazione | ⚠️ Gruppi + RBAC solo additivo — ma nessun confine di organizzazione |
+| **Esecuzione di codice non fidato** | ✅ Container **per singolo job** — cap-drop, rootfs read-only, non-root, allowlist di egress, gVisor opzionale | ✅ `dify-sandbox`: allowlist seccomp, ma **un container condiviso da tutti i tenant** | ⚠️ I task runner sono in modalità **internal** di default — la doc di n8n stessa la definisce "un rischio di sicurezza" in produzione [^5] | ⚠️ `vm2` in-process; Python solo tramite il SaaS **cloud** E2B | ✅ NsJail / microVM libkrun (Apache-2.0, self-hostabile) | ❌ Gira **in-process** — la doc lo definisce "equivalente a root". I container per utente sono a licenza enterprise |
+| **Workflow deterministici (DAG)** | ✅ 12 tipi di nodo | ✅ | ✅ | ✅ | ❌ | ❌ |
+| **Agente stateful (loop sui tool)** | ✅ LangGraph ReAct | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **Trasporti MCP (client)** | `http` · `sse` · `local` (stdio) · `remote` | Solo HTTP (niente stdio) | SSE + streamable HTTP | stdio + SSE + HTTP | stdio + SSE + HTTP | Solo streamable HTTP, **riservato agli admin** |
+| **RAG** | ✅ Qdrant / PGVector / Chroma / Astra | ✅ | ✅ | ✅ | ✅ solo pgvector, come servizio a parte | ✅ |
+| **Stelle su GitHub** | *appena partiti* | ~149k | ~196k | ~55k | ~41k | ~145k |
+
+**Dove ci battono — onestamente.** Sono tutti più vecchi di anni, molto più collaudati, e hanno ecosistemi che noi non abbiamo. Il catalogo di integrazioni di n8n (400+ nodi) è di un'altra categoria. Open WebUI e LibreChat sono client di *pura chat* migliori, più rifiniti schermata per schermata. Dify ha più provider di modelli. Se ti serve uno strumento maturo a workspace singolo e il multi-tenant non è un requisito, oggi molto probabilmente conviene uno di loro.
+
+**Scegli Agentory quando** a doverlo far girare è un'organizzazione, non un singolo sviluppatore: più team, risorse che non devono trapelare tra loro, codice di terze parti che non deve toccare l'host, e dati che non devono uscire dall'azienda.
+
+*Verificato su licenze, documentazione e sorgenti il 2026-07-14. Qualcosa di sbagliato o non più attuale? [Apri una issue](https://github.com/agentoryhq/agentory/issues) — correggiamo la tabella.*
+
+[^1]: [LICENSE di Dify](https://raw.githubusercontent.com/langgenius/dify/main/LICENSE): *"you may not use the Dify source code to operate a multi-tenant environment"* — e *"one tenant corresponds to one workspace"* — più una clausola che vieta di rimuovere il logo. GitHub la classifica `NOASSERTION`. Per correttezza: i cinque ruoli predefiniti *ci sono* nella community edition ([account.py](https://github.com/langgenius/dify/blob/main/api/models/account.py)); è solo l'[RBAC granulare](https://github.com/langgenius/dify/blob/main/api/services/enterprise/rbac_service.py) a essere riservato all'enterprise. Il workspace singolo è confermato dal [pricing](https://dify.ai/pricing) e dall'assenza di un endpoint per creare workspace.
+[^2]: [Sustainable Use License di n8n](https://raw.githubusercontent.com/n8n-io/n8n/master/LICENSE.md): *"You may use or modify the software only for your own internal business purposes or for non-commercial or personal use."* Le esclusioni della Community (Progetti, RBAC, condivisione, SSO) sono nella [documentazione di n8n](https://docs.n8n.io/deploy/host-n8n/community-edition-features): *"In Community Edition, only the instance owner and the user who creates workflows or credentials can access them."*
+[^3]: [LICENSE.md di Flowise](https://github.com/FlowiseAI/Flowise/blob/main/LICENSE.md): Apache-2.0 tranne `packages/server/src/enterprise` e `IdentityManager.ts`, che hanno una licenza commerciale proprietaria — ed è esattamente lì che vive il codice del multi-tenant. Senza chiave enterprise la piattaforma resta `OPEN_SOURCE` e il set di funzionalità è vuoto ([IdentityManager.ts](https://github.com/FlowiseAI/Flowise/blob/main/packages/server/src/IdentityManager.ts)).
+[^4]: La [LICENSE di Open WebUI](https://github.com/open-webui/open-webui/blob/main/LICENSE) (clausola 4, da v0.6.6) vieta di alterare o rimuovere il suo branding a meno di avere ≤50 utenti finali in 30 giorni, un permesso scritto o una licenza enterprise. A loro merito, RBAC e SSO **non** sono a pagamento — ma [i container di esecuzione isolati per utente sì](https://github.com/open-webui/terminals/blob/main/LICENSE).
+[^5]: [Documentazione dei task runner di n8n](https://docs.n8n.io/deploy/host-n8n/configure-n8n/set-up-task-runners): *"Using internal mode in production environments can pose a security risk. For production deployments, use external mode."* E internal è il default. Due cose che spesso si leggono sbagliate e che qui non ripetiamo: n8n non usa più `vm2`, e il suo Python non è più Pyodide.
+
+*Tutto quanto sopra è stato letto dalle licenze, dalla documentazione e dai sorgenti dei progetti stessi — non da articoli di terze parti. Due affermazioni da correggere ovunque le si veda ripetute: il code interpreter di LibreChat [non è più un servizio a pagamento](https://github.com/ClickHouse/code-interpreter) (è Apache-2.0 e self-hostabile da metà 2026), e Dify i ruoli nella community edition ce li ha.*
+
 ## Screenshot
 
 |  |  |
