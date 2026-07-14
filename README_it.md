@@ -37,7 +37,7 @@ La combinazione difendibile, in un solo prodotto:
 > Richiede Docker + Docker Compose. Avvia l'intero stack (Postgres, Qdrant, Redis, servizi embedding e whisper, skill executor, backend, frontend).
 
 ```bash
-git clone https://github.com/andreagenovese/agentory.git
+git clone https://github.com/agentoryhq/agentory.git
 cd agentory
 ./scripts/install.sh
 ```

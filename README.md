@@ -37,7 +37,7 @@ The defensible combination, in one product:
 > Requires Docker + Docker Compose. This spins up the full stack (Postgres, Qdrant, Redis, embedding & whisper services, skill executor, backend, frontend).
 
 ```bash
-git clone https://github.com/andreagenovese/agentory.git
+git clone https://github.com/agentoryhq/agentory.git
 cd agentory
 ./scripts/install.sh
 ```
