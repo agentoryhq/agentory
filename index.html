@@ -234,15 +234,30 @@
         .cmd {
             margin-top: 32px;
             display: flex;
-            align-items: center;
+            align-items: flex-start;
             gap: 12px;
             background: var(--ink-2);
             border: 1px solid var(--line);
             border-radius: 10px;
-            padding: 13px 14px;
+            padding: 14px 14px;
             font-family: var(--mono);
-            font-size: 14px;
-            max-width: 460px;
+            font-size: 13.5px;
+            line-height: 1.75;
+            max-width: 520px;
+        }
+
+        /* Two real lines — a truncated install command reads as a broken page. */
+        .cmd .lines {
+            flex: 1;
+            min-width: 0;
+            display: grid;
+            gap: 2px;
+        }
+
+        .cmd .line {
+            display: flex;
+            gap: 9px;
+            min-width: 0;
         }
 
         .cmd .dollar {
@@ -252,9 +267,8 @@
 
         .cmd code {
             color: var(--text);
-            overflow-x: auto;
-            white-space: nowrap;
-            flex: 1;
+            min-width: 0;
+            overflow-wrap: anywhere;
         }
 
         .copy {
@@ -720,9 +734,16 @@
                     infrastructure you control. Nothing leaves unless you say so.</p>
 
                 <div class="cmd">
-                    <span aria-hidden="true" class="dollar">$</span>
-                    <code id="install-cmd">git clone https://github.com/agentoryhq/agentory &amp;&amp; cd agentory &amp;&amp;
-                        ./scripts/install.sh</code>
+                    <div class="lines" id="install-cmd">
+                        <div class="line">
+                            <span aria-hidden="true" class="dollar">$</span>
+                            <code>git clone https://github.com/agentoryhq/agentory</code>
+                        </div>
+                        <div class="line">
+                            <span aria-hidden="true" class="dollar">$</span>
+                            <code>cd agentory &amp;&amp; ./scripts/install.sh</code>
+                        </div>
+                    </div>
                     <button class="copy" data-copy="#install-cmd" type="button">copy</button>
                 </div>
 
@@ -937,9 +958,16 @@
                 you to pick an isolation level, and brings the stack up. The first user to register becomes the
                 admin.</p>
             <div class="cmd">
-                <span aria-hidden="true" class="dollar">$</span>
-                <code id="install-cmd-2">git clone https://github.com/agentoryhq/agentory &amp;&amp; cd agentory &amp;&amp;
-                    ./scripts/install.sh</code>
+                <div class="lines" id="install-cmd-2">
+                    <div class="line">
+                        <span aria-hidden="true" class="dollar">$</span>
+                        <code>git clone https://github.com/agentoryhq/agentory</code>
+                    </div>
+                    <div class="line">
+                        <span aria-hidden="true" class="dollar">$</span>
+                        <code>cd agentory &amp;&amp; ./scripts/install.sh</code>
+                    </div>
+                </div>
                 <button class="copy" data-copy="#install-cmd-2" type="button">copy</button>
             </div>
             <div class="hero-cta">
@@ -967,7 +995,10 @@
     // Copy the install command.
     document.querySelectorAll('.copy').forEach((btn) => {
         btn.addEventListener('click', async () => {
-            const text = document.querySelector(btn.dataset.copy).textContent;
+            // The command is shown on two lines; copy it back as one runnable line.
+            const text = [...document.querySelectorAll(`${btn.dataset.copy} code`)]
+                .map((c) => c.textContent.trim())
+                .join(' && ');
             try {
                 await navigator.clipboard.writeText(text);
                 const prev = btn.textContent;
