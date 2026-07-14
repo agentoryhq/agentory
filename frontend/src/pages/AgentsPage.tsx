@@ -126,7 +126,7 @@ function AgentEditor({ agent, onClose, onSaved }: { agent?: Agent; onClose: () =
       <Field label={t('modal.exposeAsTool')}>
         <label className="flex items-center gap-2 text-sm text-gray-300" title={t('modal.exposeAgentTitle')}>
           <input type="checkbox" checked={exposeAsTool} onChange={(e) => setExposeAsTool(e.target.checked)} />
-          {t('modal.exposeAgentText')} <code className="text-[11px]">agent_&lt;nome&gt;</code>
+          {t('modal.exposeAgentText')} <code className="text-[11px]">{t('modal.exposeAgentToolName')}</code>
         </label>
       </Field>
       <EditorFooter
@@ -269,7 +269,7 @@ function TeamEditor({ team, onClose, onSaved }: { team?: AgentTeam; onClose: () 
       <Field label={t('modal.exposeAsTool')}>
         <label className="flex items-center gap-2 text-sm text-gray-300" title={t('modal.exposeTeamTitle')}>
           <input type="checkbox" checked={exposeAsTool} onChange={(e) => setExposeAsTool(e.target.checked)} />
-          {t('modal.exposeTeamText')} <code className="text-[11px]">team_&lt;nome&gt;</code>
+          {t('modal.exposeTeamText')} <code className="text-[11px]">{t('modal.exposeTeamToolName')}</code>
         </label>
       </Field>
       <EditorFooter

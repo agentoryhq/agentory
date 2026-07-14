@@ -407,6 +407,7 @@ function ToolCallItem({ call }: { call: ToolCallRecord }) {
 }
 
 function ToolCallsPanel({ toolCalls }: { toolCalls: ToolCallRecord[] }) {
+  const { t } = useTranslation('chat');
   const [open, setOpen] = useState(false);
 
   return (
@@ -416,7 +417,7 @@ function ToolCallsPanel({ toolCalls }: { toolCalls: ToolCallRecord[] }) {
         className="flex items-center gap-1.5 text-[11px] text-gray-500 hover:text-gray-300 transition-colors select-none"
       >
         <Wrench size={11} />
-        <span>{toolCalls.length} tool {toolCalls.length === 1 ? 'chiamato' : 'chiamati'}</span>
+        <span>{t('toolCall.called', { count: toolCalls.length })}</span>
         <ChevronRight
           size={11}
           className={`transition-transform ${open ? 'rotate-90' : ''}`}

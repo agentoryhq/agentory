@@ -5,7 +5,9 @@
   "toolCall": {
     "runningPre": "Eseguendo",
     "donePost": "completato",
-    "failedPost": "fallito"
+    "failedPost": "fallito",
+    "called_one": "{{count}} tool chiamato",
+    "called_other": "{{count}} tool chiamati"
   },
   "memory": {
     "askRemember": "Vuoi che ricordi questo?",

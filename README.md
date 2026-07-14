@@ -30,7 +30,13 @@ The defensible combination, in one product:
 
 > **Data sovereignty is the point.** Bring your own LLM (Anthropic, OpenAI, Gemini, Ollama, LM Studio, DeepSeek, any OpenAI-compatible endpoint) or run models locally. Nothing leaves your perimeter unless you say so.
 
-<!-- TODO before launch: add a demo GIF / screenshots here — it's the #1 driver of a good reception. -->
+## Screenshots
+
+|  |  |
+| :--: | :--: |
+| ![Chat with a tool call](docs/images/chat.png)<br/>**Chat** — a stateful agent that picks the right tool, runs it, and answers with the result. | ![Flow canvas](docs/images/flows.png)<br/>**Flows** — deterministic DAG workflows: HTTP, LLM, conditions, tools, skills, sub-flows, on a cron. |
+| ![Custom tools](docs/images/tools.png)<br/>**Tools** — custom REST / SQL / RAG / prompt tools, with encrypted secrets and `personal · team · org` scoping. | ![Skills marketplace](docs/images/skills-marketplace.png)<br/>**Skills** — install executable Python/Node/JS packages from the registry; they run in a sandbox. |
+| ![Agent teams](docs/images/agent-teams.png)<br/>**Agent teams** — compose agents with a topology (supervisor / sequential / parallel) and expose the team as a tool. | ![AI system settings](docs/images/ai-system.png)<br/>**AI System** — multiple LLM configs (default / summarizer / vision) and tool-prompt optimization. |
 
 ## Quick start
 

@@ -30,7 +30,13 @@ La combinazione difendibile, in un solo prodotto:
 
 > **La sovranità del dato è il punto.** Usa il tuo LLM (Anthropic, OpenAI, Gemini, Ollama, LM Studio, DeepSeek, qualsiasi endpoint OpenAI-compatible) o esegui i modelli in locale. Nulla lascia il tuo perimetro se non lo decidi tu.
 
-<!-- TODO prima del lancio: aggiungi qui una GIF demo / screenshot — è il fattore n.1 per una buona accoglienza. -->
+## Screenshot
+
+|  |  |
+| :--: | :--: |
+| ![Chat con una tool call](docs/images/chat.png)<br/>**Chat** — un agente stateful che sceglie il tool giusto, lo esegue e risponde col risultato. | ![Canvas dei flow](docs/images/flows.png)<br/>**Flows** — workflow DAG deterministici: HTTP, LLM, condizioni, tool, skill, sub-flow, su cron. |
+| ![Tool custom](docs/images/tools.png)<br/>**Tool** — tool custom REST / SQL / RAG / prompt, con segreti cifrati e scope `personal · team · org`. | ![Marketplace delle skill](docs/images/skills-marketplace.png)<br/>**Skills** — installa pacchetti eseguibili Python/Node/JS dal registry; girano in sandbox. |
+| ![Team di agenti](docs/images/agent-teams.png)<br/>**Team di agenti** — componi agenti con una topologia (supervisor / sequential / parallel) ed esponi il team come tool. | ![Impostazioni sistema AI](docs/images/ai-system.png)<br/>**Sistema AI** — più configurazioni LLM (default / summarizer / vision) e ottimizzazione del prompt dei tool. |
 
 ## Avvio rapido
 

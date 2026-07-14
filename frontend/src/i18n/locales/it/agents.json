@@ -48,6 +48,8 @@
     "members": "Membri (ordine = priorità/sequenza)",
     "memberAgent": "— agente —",
     "rolePlaceholder": "ruolo",
-    "addMember": "membro"
+    "addMember": "membro",
+    "exposeAgentToolName": "agent_<nome>",
+    "exposeTeamToolName": "team_<nome>"
   }
 }
