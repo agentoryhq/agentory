@@ -11,6 +11,10 @@ Esegui agenti AI, workflow deterministici e codice custom in sandbox — multi-t
 
 [🇬🇧 English](README.md) · 🇮🇹 Italiano
 
+![Agentory in 45 secondi: l'agente sceglie un tool SQL e risponde, poi lo stesso lavoro gira come flow schedulato](docs/images/demo.gif)
+
+*All'agente viene chiesto quali regioni hanno perso fatturato. Sceglie il tool SQL, interroga il warehouse e risponde. Poi lo stesso lavoro — estrai i numeri, scrivi il digest, pubblicalo al team — gira come flow deterministico su cron. **Improvvisazione e ripetibilità, nello stesso sistema.***
+
 </div>
 
 ---

@@ -524,6 +524,22 @@
             margin-bottom: 12px;
         }
 
+        /* ── Demo ────────────────────────────────────────────────────────── */
+        .demo {
+            margin: 0;
+            border: 1px solid var(--line);
+            border-radius: 14px;
+            overflow: hidden;
+            background: var(--panel);
+            box-shadow: 0 24px 60px -30px rgba(0, 0, 0, 0.8);
+        }
+
+        .demo video {
+            display: block;
+            width: 100%;
+            height: auto;
+        }
+
         /* ── Shots ───────────────────────────────────────────────────────── */
         .shots {
             display: grid;
@@ -709,7 +725,8 @@
             Agentory
         </a>
         <nav class="nav-links">
-            <a href="#platform">Platform</a>
+            <a href="#demo">Demo</a>
+      <a href="#platform">Platform</a>
             <a href="#security">Security</a>
             <a href="https://github.com/agentoryhq/agentory#readme">Docs</a>
             <a class="btn btn-primary" href="https://github.com/agentoryhq/agentory">
@@ -817,6 +834,25 @@
             </div>
         </div>
     </div>
+
+    <!-- ── The demo: the product doing the thing the page claims ────────── -->
+    <section id="demo">
+        <div class="wrap">
+            <div class="sec-head reveal">
+                <span class="label">45 seconds, no cuts</span>
+                <h2>Watch it improvise, then watch it repeat.</h2>
+                <p>The agent is asked which regions lost revenue. It picks the SQL tool, queries the warehouse, and
+                    answers. Then the same work — pull the numbers, write the digest, post it to the team — runs as a
+                    deterministic flow on a cron.</p>
+            </div>
+            <figure class="demo reveal">
+                <video autoplay loop muted playsinline preload="metadata" width="1440" height="900"
+                       aria-label="Agentory: an agent answers a revenue question using a SQL tool, then the same work runs as a scheduled flow.">
+                    <source src="images/demo.mp4" type="video/mp4"/>
+                </video>
+            </figure>
+        </div>
+    </section>
 
     <!-- ── Lanes: the positioning argument ─────────────────────────────── -->
     <section id="platform">

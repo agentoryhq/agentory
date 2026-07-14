@@ -11,6 +11,10 @@ Run AI agents, deterministic workflows, and sandboxed custom code — multi-tena
 
 🇬🇧 English · [🇮🇹 Italiano](README_it.md)
 
+![Agentory in 45 seconds: the agent picks a SQL tool and answers, then the same work runs as a scheduled flow](docs/images/demo.gif)
+
+*The agent is asked which regions lost revenue. It picks the SQL tool, queries the warehouse, and answers. Then the same work — pull the numbers, write the digest, post it to the team — runs as a deterministic flow on a cron. **Improvisation and repeatability, in one system.***
+
 </div>
 
 ---
