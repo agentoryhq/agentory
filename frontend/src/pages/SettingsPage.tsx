@@ -1260,7 +1260,7 @@ const LLM_PROVIDERS: {
     descKey:       'llm.providerAnthropicDesc',
     needsKey:      true,
     needsUrl:      false,
-    defaultModels: ['claude-opus-4-7', 'claude-sonnet-4-6', 'claude-haiku-4-5-20251001'],
+    defaultModels: ['claude-opus-4-8', 'claude-sonnet-5', 'claude-haiku-4-5-20251001'],
   },
   {
     value:         'openai',
@@ -1268,7 +1268,7 @@ const LLM_PROVIDERS: {
     descKey:       'llm.providerOpenAiDesc',
     needsKey:      true,
     needsUrl:      false,
-    defaultModels: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-3.5-turbo'],
+    defaultModels: ['gpt-4o', 'gpt-4o-mini', 'gpt-4.1', 'gpt-4.1-mini'],
   },
   {
     value:         'gemini',
@@ -1276,7 +1276,9 @@ const LLM_PROVIDERS: {
     descKey:       'llm.providerGeminiDesc',
     needsKey:      true,
     needsUrl:      false,
-    defaultModels: ['gemini-2.0-flash', 'gemini-1.5-pro', 'gemini-1.5-flash'],
+    // Use the "-latest" aliases: Google retires pinned versions (e.g. gemini-2.0-flash
+    // now 404s), whereas the aliases always resolve to a live model.
+    defaultModels: ['gemini-flash-latest', 'gemini-pro-latest', 'gemini-flash-lite-latest'],
   },
   {
     value:         'ollama',
@@ -1285,7 +1287,7 @@ const LLM_PROVIDERS: {
     needsKey:      true,
     keyOptional:   true,
     needsUrl:      true,
-    defaultModels: ['llama3.2', 'llama3.1', 'mistral', 'gemma3', 'qwen2.5', 'deepseek-r1'],
+    defaultModels: ['llama3.3', 'llama3.2', 'qwen3', 'gemma3', 'mistral', 'deepseek-r1'],
   },
   {
     value:         'lmstudio',

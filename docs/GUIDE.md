@@ -614,8 +614,19 @@ Some models require different prefixes for queries vs documents:
 ### Switching provider
 
 1. Configure the new provider in Settings → Vector DB
-2. Existing collections on the old provider are not migrated automatically
-3. Reindex documents to populate the collections on the new provider
+2. Reindex your documents so the collections exist on the new provider
+
+> **⚠ Switching the Vector DB does not migrate your vectors.** There is no
+> automatic migration between providers. Switching is **non-destructive and
+> reversible**: the vectors physically live only in the provider where they were
+> indexed, so the old provider's data is left untouched and switching back makes
+> it available again. What *is* shared across providers is the collection
+> **registry** (names/config in Postgres), so after switching the UI still lists
+> your collections and the `search_<collection>` tools still exist — but the new
+> provider starts **empty**, and a search returns nothing until you reindex the
+> documents into it. Plan a switch as a "start fresh and reindex" operation, not
+> as a data move. Note also that changing provider overwrites the single stored
+> URL/token, so re-enter them if you later switch back to a keyed provider.
 
 ### Collection management
 

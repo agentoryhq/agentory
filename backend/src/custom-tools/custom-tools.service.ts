@@ -491,8 +491,8 @@ export class CustomToolsService {
       upsert: (col, points) =>
         this.vectorStore.upsert(col, points),
 
-      ensureCollection: (name) =>
-        this.vectorStore.ensureCollection(name, this.embeddingProvider.vectorSize),
+      ensureCollection: async (name) =>
+        this.vectorStore.ensureCollection(name, await this.embeddingProvider.getVectorSize()),
 
       chunkText: async (text) => {
         const size    = await this.embeddingProvider.getChunkSize();

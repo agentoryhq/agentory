@@ -160,7 +160,7 @@ export class InternalVectorController {
       `[internal] vector ingest collection="${dto.collection}" items=${dto.items.length} recreate=${dto.recreate ?? false}`,
     );
 
-    const vectorSize = this.embedService.vectorSize;
+    const vectorSize = await this.embedService.getVectorSize();
     if (!vectorSize) {
       throw new ServiceUnavailableException('vectordb.embeddingNotConfigured');
     }

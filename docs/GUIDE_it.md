@@ -614,8 +614,20 @@ Alcuni modelli richiedono prefissi diversi per query vs documenti:
 ### Cambio provider
 
 1. Configura il nuovo provider in Impostazioni → Vector DB
-2. Le collection esistenti sul vecchio provider non vengono migrate automaticamente
-3. Reindicizza i documenti per popolare le collection sul nuovo provider
+2. Reindicizza i documenti perché le collection esistano sul nuovo provider
+
+> **⚠ Cambiare Vector DB non migra i tuoi vettori.** Non esiste alcuna
+> migrazione automatica tra provider. Lo switch è **non distruttivo e
+> reversibile**: i vettori risiedono fisicamente solo nel provider in cui sono
+> stati indicizzati, quindi i dati del vecchio provider restano intatti e
+> tornando indietro sono di nuovo disponibili. Ciò che è condiviso tra i provider
+> è l'**anagrafica** delle collection (nomi/config in Postgres): dopo lo switch la
+> UI continua a mostrare le tue collection e i tool `search_<collection>` restano,
+> ma il nuovo provider parte **vuoto** e una ricerca non trova nulla finché non
+> reindicizzi i documenti. Pianifica un cambio come un'operazione "riparto e
+> reindicizzo", non come uno spostamento di dati. Nota inoltre che cambiare
+> provider sovrascrive l'unico URL/token salvato: reinseriscili se in seguito
+> torni a un provider con chiave.
 
 ### Gestione collection
 

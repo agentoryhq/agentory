@@ -54,7 +54,7 @@ const MODEL_DEFAULTS: Record<EmbeddingProvider, string> = {
 
 const DEFAULT_BASE_URLS: Partial<Record<EmbeddingProvider, string>> = {
   internal:           'http://localhost:8000/v1',
-  ollama:             'http://localhost:11434',
+  ollama:             'http://localhost:11434/v1',
   lmstudio:           'http://localhost:1234/v1',
   'openai-compatible': 'http://localhost:1234/v1',
 };
@@ -109,6 +109,22 @@ export class EmbeddingProviderService {
   get vectorSize(): number {
     return this.cachedClient?.config.vectorSize
       ?? parseInt(this.cfg.get('EMBEDDING_VECTOR_SIZE', '1024'), 10);
+  }
+
+  /**
+   * Async-safe vector dimension: forces the client to be built (resolving the
+   * current DB config) before returning, so the value always reflects the active
+   * embedding provider — never the stale ENV fallback.
+   *
+   * Use this instead of the `vectorSize` getter wherever a collection's dimension
+   * is being SET (ensure/recreate). The synchronous getter returns the ENV default
+   * whenever the cache was just invalidated (e.g. right after an admin changes the
+   * embedding provider, or on the very first operation after boot), which would
+   * otherwise create a mis-dimensioned collection and make every upsert fail.
+   */
+  async getVectorSize(): Promise<number> {
+    const client = await this.getClient();
+    return client.config.vectorSize;
   }
 
   // ── Client construction ─────────────────────────────────────────────────────
@@ -254,9 +270,16 @@ export class EmbeddingProviderService {
     }
 
     // For all OpenAI-compatible providers (openai, ollama, lmstudio, openai-compatible)
-    const baseURL = config.provider === 'openai'
+    let baseURL = config.provider === 'openai'
       ? undefined   // OpenAI uses its default endpoint
       : (config.baseUrl ?? DEFAULT_BASE_URLS[config.provider] ?? 'http://localhost:1234/v1');
+
+    // Ollama serves its OpenAI-compatible API exclusively under /v1 (the root is the
+    // native /api). The OpenAI SDK appends "/embeddings" to baseURL, so a base without
+    // /v1 (e.g. "http://host:11434", which is what users naturally enter) would 404.
+    if (config.provider === 'ollama' && baseURL && !/\/v1\/?$/.test(baseURL)) {
+      baseURL = `${baseURL.replace(/\/$/, '')}/v1`;
+    }
 
     return {
       config,

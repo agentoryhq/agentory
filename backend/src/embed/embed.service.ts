@@ -52,7 +52,7 @@ export class EmbedService {
   async ensureCollection(name: string) {
     const vs = this.vectorStore;
     if (!vs) throw new Error('VectorStoreProviderService not available');
-    await vs.ensureCollection(name, this.embeddingProvider.vectorSize);
+    await vs.ensureCollection(name, await this.embeddingProvider.getVectorSize());
   }
 
   /**
@@ -227,7 +227,7 @@ export class EmbedService {
   async clearCollection(name: string): Promise<void> {
     const vs = this.vectorStore;
     if (!vs) throw new Error('VectorStoreProviderService not available');
-    await vs.recreateCollection(name, this.embeddingProvider.vectorSize);
+    await vs.recreateCollection(name, await this.embeddingProvider.getVectorSize());
     this.logger.log(`Collection "${name}" emptied and recreated`);
   }
 

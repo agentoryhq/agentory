@@ -80,14 +80,29 @@ export class PgVectorAdapter implements VectorStoreAdapter {
       )
     `);
 
-    // Create ivfflat index for efficient search
-    await this.pool.query(`
-      CREATE INDEX IF NOT EXISTS "${table}_vec_idx"
-        ON "${table}" USING ivfflat (embedding vector_cosine_ops)
-        WITH (lists = 100)
-    `).catch(() => {
-      // The ivfflat index requires at least 1 row → ignore the error on the first insert
-    });
+    // Index for efficient similarity search. HNSW is preferred over ivfflat:
+    // ivfflat builds its centroids from the rows present at index-creation time,
+    // so an index created on an empty (or near-empty) table has degenerate lists
+    // and silently loses recall — a freshly-indexed collection can return zero
+    // hits. HNSW builds incrementally and is accurate from the first row.
+    // HNSW requires pgvector >= 0.5.0; fall back to ivfflat on older servers.
+    try {
+      await this.pool.query(`
+        CREATE INDEX IF NOT EXISTS "${table}_vec_idx"
+          ON "${table}" USING hnsw (embedding vector_cosine_ops)
+      `);
+    } catch (err) {
+      this.logger.warn(
+        `HNSW index unavailable for "${table}" (${(err as Error).message}); falling back to ivfflat.`,
+      );
+      await this.pool.query(`
+        CREATE INDEX IF NOT EXISTS "${table}_vec_idx"
+          ON "${table}" USING ivfflat (embedding vector_cosine_ops)
+          WITH (lists = 100)
+      `).catch(() => {
+        // ivfflat needs at least 1 row → ignore; a later insert will allow it.
+      });
+    }
 
     this.logger.log(`PGVector table created: "${table}" (dims=${vectorSize})`);
   }

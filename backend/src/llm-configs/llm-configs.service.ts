@@ -329,7 +329,7 @@ export class LlmConfigsService {
    */
   async buildModelForConfig(
     entity: LlmConfigEntity,
-    overrides?: { maxTokens?: number; temperature?: number },
+    overrides?: { maxTokens?: number; temperature?: number; maxRetries?: number; streaming?: boolean },
   ): Promise<BaseChatModel> {
     const model = await this.instantiateModelForConfig(entity, overrides);
     // Serving metrics (P2): one handler per built model, latency/tokens/errors
@@ -361,7 +361,7 @@ export class LlmConfigsService {
 
   private async instantiateModelForConfig(
     entity: LlmConfigEntity,
-    overrides?: { maxTokens?: number; temperature?: number },
+    overrides?: { maxTokens?: number; temperature?: number; maxRetries?: number; streaming?: boolean },
   ): Promise<BaseChatModel> {
     const provider  = entity.provider;
     const maxTokens = overrides?.maxTokens ?? entity.maxTokens ?? 4096;
@@ -373,6 +373,16 @@ export class LlmConfigsService {
     const tempOpt = overrides?.temperature !== undefined
       ? { temperature: overrides.temperature }
       : {};
+
+    // Extra options spread into every provider constructor. Empty on the agent
+    // path (no override), so nothing changes there. `streaming` overrides the
+    // per-case default because it is spread AFTER it. maxRetries must be set at
+    // construction time — LangChain freezes its retry policy into an internal
+    // AsyncCaller in the constructor, so mutating the instance later is ignored.
+    const common: Record<string, any> = {
+      ...(overrides?.maxRetries !== undefined ? { maxRetries: overrides.maxRetries } : {}),
+      ...(overrides?.streaming   !== undefined ? { streaming:  overrides.streaming  } : {}),
+    };
 
     const CLOUD_FIXED: LlmProvider[] = ['anthropic', 'openai', 'gemini'];
     const baseUrl = CLOUD_FIXED.includes(provider)
@@ -388,20 +398,21 @@ export class LlmConfigsService {
           apiKey: apiKey ?? '',
           model: modelName, streaming: true, maxTokens, ...tempOpt,
           invocationKwargs: { top_p: undefined },
+          ...common,
         });
       }
       case 'openai': {
         const { ChatOpenAI } = require('@langchain/openai');
         return new ChatOpenAI({
           apiKey: apiKey ?? '',
-          model: modelName, streaming: true, maxTokens, ...tempOpt,
+          model: modelName, streaming: true, maxTokens, ...tempOpt, ...common,
         });
       }
       case 'gemini': {
         const { ChatGoogleGenerativeAI } = require('@langchain/google-genai');
         return new ChatGoogleGenerativeAI({
           apiKey: apiKey ?? '',
-          model: modelName, streaming: true, maxOutputTokens: maxTokens, ...tempOpt,
+          model: modelName, streaming: true, maxOutputTokens: maxTokens, ...tempOpt, ...common,
         });
       }
       case 'ollama': {
@@ -409,7 +420,7 @@ export class LlmConfigsService {
         // Local Ollama has no native auth, but behind a reverse-proxy (or ollama.com
         // cloud) a Bearer token is used: if configured we send it as a header.
         return new ChatOllama({
-          model: modelName, baseUrl: baseUrl ?? 'http://localhost:11434', numPredict: maxTokens, ...tempOpt,
+          model: modelName, baseUrl: baseUrl ?? 'http://localhost:11434', numPredict: maxTokens, ...tempOpt, ...common,
           ...(apiKey ? { headers: { Authorization: `Bearer ${apiKey}` } } : {}),
         });
       }
@@ -440,7 +451,7 @@ export class LlmConfigsService {
         };
         return new ChatOpenAI({
           apiKey: apiKey ?? '',
-          model: modelName, streaming: true, maxTokens, ...tempOpt,
+          model: modelName, streaming: true, maxTokens, ...tempOpt, ...common,
           configuration: { baseURL: baseUrl ?? 'https://api.deepseek.com/v1', fetch: fetchWithReasoning },
         });
       }
@@ -449,7 +460,7 @@ export class LlmConfigsService {
         const { ChatOpenAI } = require('@langchain/openai');
         return new ChatOpenAI({
           apiKey: apiKey ?? 'lm-studio',
-          model: modelName, streaming: true, maxTokens, ...tempOpt,
+          model: modelName, streaming: true, maxTokens, ...tempOpt, ...common,
           configuration: { baseURL: baseUrl ?? 'http://localhost:1234/v1' },
         });
       }
@@ -459,15 +470,41 @@ export class LlmConfigsService {
     }
   }
 
+  /** Duration after which a connection test is aborted (ms). */
+  private static readonly TEST_TIMEOUT_MS = 20_000;
+
   /** Tests the connection for a specific config. */
   async testConnection(id: string): Promise<{ ok: boolean; error?: string }> {
     try {
       const entity = await this.findOne(id);
-      const model  = await this.buildModelForConfig(entity);
-      await model.invoke('Reply only with "ok"');
+      // A connection test must fail fast. In production the model retries ~6× with
+      // exponential backoff, so a 429 / quota error keeps the request open for
+      // ~100s and the UI (which times out sooner) shows no result at all. Build a
+      // test-only model with retries disabled and streaming off — a streaming 429
+      // otherwise holds the SSE channel open — so the real provider error surfaces
+      // in seconds. maxRetries must be set at construction: LangChain freezes it
+      // into an internal AsyncCaller, so mutating the instance afterwards is ignored.
+      const model = await this.buildModelForConfig(entity, { maxRetries: 0, streaming: false });
+
+      const ac = new AbortController();
+      const timer = setTimeout(() => ac.abort(), LlmConfigsService.TEST_TIMEOUT_MS);
+      try {
+        await model.invoke('Reply only with "ok"', { signal: ac.signal });
+      } finally {
+        clearTimeout(timer);
+      }
       return { ok: true };
     } catch (err: any) {
-      return { ok: false, error: err?.message ?? String(err) };
+      const msg = isAbortError(err)
+        ? `No response within ${LlmConfigsService.TEST_TIMEOUT_MS / 1000}s (the provider did not answer in time).`
+        : (err?.message ?? String(err));
+      return { ok: false, error: msg };
     }
   }
+}
+
+/** True when the error is an AbortController timeout (name/message varies by runtime). */
+function isAbortError(err: any): boolean {
+  return err?.name === 'AbortError'
+    || /aborted/i.test(err?.message ?? '');
 }
