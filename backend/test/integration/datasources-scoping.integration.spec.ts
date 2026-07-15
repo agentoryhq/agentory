@@ -20,7 +20,15 @@ const teamsStub = {
 
 const TEAM_VENDITE = randomUUID();
 const TEAM_ALTRO = randomUUID();
-const CONN = 'postgres://user:pass@db.internal:5432/app';
+// 127.0.0.1: an IP (the host-guard skips DNS) that is private, so it passes under the
+// permissive default policy. A DNS name like `db.internal` resolves in the Docker network
+// at runtime but not under testcontainers, where the guard would reject it as unresolvable.
+const CONN = 'postgres://user:pass@127.0.0.1:5432/app';
+
+// The SSRF host-guard reads its policy from app_config; a repo returning null yields the
+// permissive default (allow private hosts). ConfigService is only used for file-share paths.
+const configStub = { get: (_k: string, d?: any) => d } as any;
+const appConfigStub = { findOne: async () => null } as any;
 
 let db: TestDb;
 let service: DataSourcesService;
@@ -37,7 +45,7 @@ beforeAll(async () => {
   process.env.TOOL_SECRETS_KEY ||= 'a'.repeat(64);
   db = await startTestDb();
 
-  service = new DataSourcesService(db.dataSource.getRepository(DataSourceEntity), teamsStub);
+  service = new DataSourcesService(db.dataSource.getRepository(DataSourceEntity), teamsStub, configStub, appConfigStub);
 
   const users = db.dataSource.getRepository(User);
   const mk = async (email: string) => (await users.save(users.create({ email, name: email, password: 'x' }))).id;
@@ -111,7 +119,8 @@ describe('connection string: encrypted at rest and never exposed (A1)', () => {
     const created = await service.create(B, mkDs({ name: 'ds_atrest', scope: 'personal' }));
     const row = await db.dataSource.getRepository(DataSourceEntity).findOneByOrFail({ id: created.id });
     expect(row.encryptedConnectionString).not.toBe(CONN);
-    expect(row.encryptedConnectionString).not.toContain('db.internal');
+    expect(row.encryptedConnectionString).not.toContain('127.0.0.1');
+    expect(row.encryptedConnectionString).not.toContain('pass');
     expect(row.encryptedConnectionString.split(':')).toHaveLength(3);
   });
 

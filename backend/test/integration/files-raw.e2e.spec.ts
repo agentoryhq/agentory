@@ -7,7 +7,7 @@
  * (pre access-aware) and no longer exercised the real check.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, rmSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, basename } from 'node:path';
 import { Test } from '@nestjs/testing';
@@ -59,9 +59,12 @@ beforeAll(async () => {
   BID = await mk('b@raw.local');
   CID = await mk('c@raw.local');
 
-  // owner.txt is a TRACKED file owned by B (personal scope)
+  // owner.txt is a TRACKED file owned by B (personal scope). Store the storagePath in
+  // its realpath form: the controller resolves the requested path via realpathSync, and
+  // on macOS the temp dir sits under /var → /private/var, so a non-resolved storagePath
+  // would never match the exact-path lookup and the file would look untracked.
   await fileRepo.save(fileRepo.create({
-    originalName: 'owner.txt', storagePath: join(uploadDir, 'owner.txt'),
+    originalName: 'owner.txt', storagePath: join(realpathSync(uploadDir), 'owner.txt'),
     mimeType: 'text/plain', size: 13, userId: BID, scope: 'personal',
   }));
 

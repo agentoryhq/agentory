@@ -18,7 +18,12 @@ import { SchemaEnrichmentService } from '../../src/datasources/schema-enrichment
 import { JwtAuthGuard } from '../../src/common/guards/jwt-auth.guard';
 
 const TEAM = randomUUID();
-const CONN = 'postgres://user:secretpass@db.internal:5432/app';
+// 127.0.0.1: an IP (host-guard skips DNS), private → allowed under the permissive default.
+// `db.internal` resolves in the Docker network at runtime but not under testcontainers.
+const CONN = 'postgres://user:secretpass@127.0.0.1:5432/app';
+
+const configStub = { get: (_k: string, d?: any) => d } as any;
+const appConfigStub = { findOne: async () => null } as any;
 const memberships: Record<string, string[]> = {};
 const teamsStub = {
   teamIdsForUser: async (u: string) => memberships[u] ?? [],
@@ -35,7 +40,7 @@ let teamDsId: string;
 beforeAll(async () => {
   process.env.TOOL_SECRETS_KEY ||= 'a'.repeat(64);
   db = await startTestDb();
-  const service = new DataSourcesService(db.dataSource.getRepository(DataSourceEntity), teamsStub);
+  const service = new DataSourcesService(db.dataSource.getRepository(DataSourceEntity), teamsStub, configStub, appConfigStub);
 
   const users = db.dataSource.getRepository(User);
   const mk = async (email: string) => (await users.save(users.create({ email, name: email, password: 'x' }))).id;
