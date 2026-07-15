@@ -89,6 +89,14 @@ L'**installer guidato** fa tutto: preflight Docker → genera tutti i segreti �
 ./scripts/compose.sh down       # ferma
 ```
 
+Per aggiornare un deployment attivo a una versione più recente — fa backup, pull, rebuild e restart, preservando dati e configurazione:
+
+```bash
+./scripts/update.sh
+```
+
+Vedi [**Aggiornare** nella guida](docs/GUIDE_it.md#28-aggiornare-un-deployment-esistente) per cosa fa e l'equivalente manuale.
+
 <details>
 <summary><b>Setup manuale</b> (senza l'installer)</summary>
 

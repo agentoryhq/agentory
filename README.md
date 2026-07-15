@@ -89,6 +89,14 @@ The **guided installer** does everything: Docker preflight → generates all sec
 ./scripts/compose.sh down       # stop
 ```
 
+To upgrade a running deployment to a newer version — backs up, pulls, rebuilds and restarts, preserving your data and config:
+
+```bash
+./scripts/update.sh
+```
+
+See [**Upgrading** in the guide](docs/GUIDE.md#28-upgrading-an-existing-deployment) for what it does and the manual equivalent.
+
 <details>
 <summary><b>Manual setup</b> (without the installer)</summary>
 

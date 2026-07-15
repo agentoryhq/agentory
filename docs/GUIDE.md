@@ -200,6 +200,42 @@ docker compose -f docker-compose.yml -f docker-compose.egress.yml -f docker-comp
 
 > **Broker (D2):** requires `HOST_DATA_DIR` (absolute host path) in `.env` and the subfolders writable by the executor's uid. Prepare them with **`./scripts/bootstrap-broker.sh`** (reads `HOST_DATA_DIR` from `.env`, creates the directories and applies `chmod 0777` only to those writable by jobs, then verifies the `pa-runner` image). Manual equivalent: `mkdir -p "$HOST_DATA_DIR"/{skills,work,state,skills-output,sandbox} && chmod 0777 "$HOST_DATA_DIR"/{work,state,skills-output,sandbox}`.
 
+### 2.8 Upgrading an existing deployment
+
+To move a running deployment to a newer version:
+
+```bash
+./scripts/update.sh
+```
+
+It backs up your data, `git pull`s, rebuilds, and restarts — preserving your volumes and `.env`. Flags: `--yes` (no prompt), `--no-backup`.
+
+Under the hood it does, in order: **backup** (`scripts/backup.sh`) → **`git pull --ff-only`** → flags any **new `.env.example` variables** missing from your `.env` → **rebuilds the broker job images** (`pa-runner` / `pa-egress-proxy`) *only if* your profile uses them and `runner/` or `egress-proxy/` changed → **`docker compose up -d --build`** → **health check**.
+
+Four things make this safe, and are worth understanding if you upgrade by hand instead:
+
+- **Your data persists.** Postgres, `uploads`, `skills_data` and `qdrant_data` live in named volumes that a rebuild never touches.
+- **Migrations are automatic.** The backend runs pending migrations on boot (`migrationsRun: true`) — there is no manual DB step.
+- **`git pull` is mandatory and separate.** `install.sh` and `update.sh` build from the working tree as-is; neither `install.sh` nor a bare `up --build` fetches new code. Only `git pull` does. (`.env`, `scripts/compose.sh` and `scripts/.compose-profile` are gitignored, so the pull never clobbers them.)
+- **The broker images are not rebuilt by `up --build`.** `pa-runner` (L2/L3) and `pa-egress-proxy` (L3) are referenced by image name, not `build:`. If `runner/` or `egress-proxy/` changed, rebuild them explicitly: `docker build -t pa-runner ./runner` and, for L3, `docker build -t pa-egress-proxy ./egress-proxy`. `update.sh` does this for you when their source changed.
+
+**Manual / unattended equivalent** (no `update.sh`):
+
+```bash
+./scripts/backup.sh                                   # snapshot first
+git pull                                              # bring in the new code
+# new required variables? compare and edit .env by hand:
+diff <(grep -oE '^[A-Z_]+=' .env.example | sort) <(grep -oE '^[A-Z_]+=' .env | sort)
+docker build -t pa-runner ./runner                    # only if using L2/L3 and runner/ changed
+docker build -t pa-egress-proxy ./egress-proxy        # only if using L3 and egress-proxy/ changed
+./scripts/compose.sh up -d --build                    # rebuild + restart; migrations run on boot
+curl -s localhost:3000/api/health                     # verify
+```
+
+> **Re-running `install.sh` instead** also works for an upgrade (it is idempotent and rebuilds the broker images), but **only after** a `git pull` — on its own it just rebuilds the version already on disk. Prefer `update.sh` for a running deployment.
+
+**Rollback.** Every run leaves a snapshot under `backups/agentory-backup-<timestamp>/`. To restore the database: `gunzip -c backups/<snapshot>/db.sql.gz | ./scripts/compose.sh exec -T postgres psql -U <DB_USER> -d <DB_NAME>`. Volume tarballs (`uploads`/`skills_data`/`qdrant_data`) restore into their volumes with the `docker run --rm -v <project>_<volume>:/dst …` pattern shown at the top of `scripts/backup.sh`.
+
 ---
 
 ## 3. Daily development startup
