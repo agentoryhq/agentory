@@ -3,6 +3,7 @@ import {NestFactory} from '@nestjs/core';
 import {ValidationPipe} from '@nestjs/common';
 import {DocumentBuilder, SwaggerModule} from '@nestjs/swagger';
 import * as bodyParser from 'body-parser';
+import helmet from 'helmet';
 import {IoAdapter} from '@nestjs/platform-socket.io';
 import {AppModule} from './app.module';
 import {APP_NAME} from './config/app.config';
@@ -39,6 +40,17 @@ async function bootstrap() {
   // Double configuration (cors:true + enableCors) causes duplicate headers → the browser rejects it.
   const app = await NestFactory.create(AppModule);
 
+  // Security headers (HSTS, X-Content-Type-Options: nosniff, X-Frame-Options,
+  // Referrer-Policy, …). CSP is left OFF here: this process serves a JSON API plus
+  // the Swagger UI (whose inline assets a strict CSP would break) — the browser CSP
+  // belongs on the frontend (nginx). CORP/COEP are relaxed so the SPA on another
+  // origin can consume the API and stream/download files.
+  app.use(helmet({
+    contentSecurityPolicy: false,
+    crossOriginResourcePolicy: false,
+    crossOriginEmbedderPolicy: false,
+  }));
+
   // Increase the body limit for the internal endpoints that receive batches of vectors/items.
   // Express's default (100KB) is too low for batches of 200+ items with a JSON payload.
   app.use(bodyParser.json({ limit: '20mb' }));
@@ -74,18 +86,23 @@ async function bootstrap() {
     credentials:    true,
   });
 
-  const config = new DocumentBuilder()
-    .setTitle(`${APP_NAME} API`)
-    .setDescription(`Backend per ${APP_NAME}`)
-    .setVersion('1.0')
-    .addBearerAuth()
-    .build();
-  const document = SwaggerModule.createDocument(app, config);
-  SwaggerModule.setup('api/docs', app, document);
+  // Swagger UI (full API schema) is served only outside production, unless
+  // explicitly enabled — avoids handing an attacker the API map in prod.
+  const swaggerEnabled = process.env.NODE_ENV !== 'production' || process.env.ENABLE_SWAGGER === 'true';
+  if (swaggerEnabled) {
+    const config = new DocumentBuilder()
+      .setTitle(`${APP_NAME} API`)
+      .setDescription(`Backend per ${APP_NAME}`)
+      .setVersion('1.0')
+      .addBearerAuth()
+      .build();
+    const document = SwaggerModule.createDocument(app, config);
+    SwaggerModule.setup('api/docs', app, document);
+  }
 
   const port = process.env.PORT || 3000;
   await app.listen(port);
   console.log(`🚀 ${APP_NAME} backend running at http://localhost:${port}`);
-  console.log(`📖 Swagger at http://localhost:${port}/api/docs`);
+  if (swaggerEnabled) console.log(`📖 Swagger at http://localhost:${port}/api/docs`);
 }
 bootstrap();

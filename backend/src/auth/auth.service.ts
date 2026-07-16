@@ -24,6 +24,13 @@ import * as bcrypt from 'bcrypt';
 import { UsersService } from '../users/users.service';
 import { AuditService } from '../audit/audit.service';
 
+/**
+ * A valid bcrypt hash (cost 12) used only to spend the same CPU on an unknown-email
+ * login as on a real one — so response time does not reveal whether an email exists.
+ * Computed once at load; the plaintext is irrelevant (it never matches a submission).
+ */
+const DUMMY_PASSWORD_HASH = bcrypt.hashSync('unknown-user-timing-equalizer', 12);
+
 @Injectable()
 export class AuthService {
   constructor(
@@ -42,12 +49,21 @@ export class AuthService {
     const existing = await this.usersService.findByEmail(email);
     if (existing) throw new ConflictException('errors.emailTaken');
 
-    // bcrypt with 12 rounds: high computational cost to slow down brute-force
-    const hash = await bcrypt.hash(password, 12);
-
     // Bootstrap: the FIRST registered user becomes the org administrator.
     // All subsequent ones are normal users (an admin can promote them).
     const isFirstUser = (await this.usersService.count()) === 0;
+
+    // Public self-service registration is CLOSED by default: after bootstrap, new
+    // accounts are created by an admin unless ALLOW_PUBLIC_REGISTRATION=true. Blunts
+    // account spam / unwanted enrolment on internet-facing deployments.
+    const publicRegOpen = (process.env.ALLOW_PUBLIC_REGISTRATION ?? 'false').toLowerCase() === 'true';
+    if (!isFirstUser && !publicRegOpen) {
+      await this.audit?.record({ action: 'auth.register', resource: email, outcome: 'denied', ctx: { reason: 'registration_closed' } });
+      throw new ForbiddenException('errors.registrationClosed');
+    }
+
+    // bcrypt with 12 rounds: high computational cost to slow down brute-force
+    const hash = await bcrypt.hash(password, 12);
     const role = isFirstUser ? 'admin' : 'user';
 
     const user  = await this.usersService.create({ email, name, password: hash, role });
@@ -71,8 +87,10 @@ export class AuthService {
   async login(email: string, password: string) {
     const user = await this.usersService.findByEmail(email);
 
-    // Intentionally generic message: does not reveal whether the email exists
+    // Intentionally generic message AND constant-time: run a dummy bcrypt compare so
+    // an unknown email costs the same as a wrong password → no timing enumeration.
     if (!user) {
+      await bcrypt.compare(password, DUMMY_PASSWORD_HASH);
       await this.audit?.record({ action: 'auth.login', resource: email, outcome: 'denied', ctx: { reason: 'unknown_email' } });
       throw new UnauthorizedException('errors.invalidCredentials');
     }

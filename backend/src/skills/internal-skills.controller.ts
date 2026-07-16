@@ -33,7 +33,6 @@ import {
   HttpCode,
   HttpStatus,
   Logger,
-  NotFoundException,
   Param,
   Post,
   Req,
@@ -47,7 +46,6 @@ import {IsNumber, IsObject, IsOptional, IsPositive, IsString, Min} from 'class-v
 
 import {InternalTokenGuard, internalUserId} from '../common/guards/internal-token.guard';
 import {SkillConfigVar} from './skill-config-var.entity';
-import {Skill} from './skill.entity';
 import {SkillsService} from './skills.service';
 import {SkillExecutorUnavailableError} from './skill-executor.client';
 
@@ -93,9 +91,6 @@ export class InternalSkillsController {
   private readonly logger = new Logger(InternalSkillsController.name);
 
   constructor(
-    @InjectRepository(Skill)
-    private readonly skillRepo: Repository<Skill>,
-
     @InjectRepository(SkillConfigVar)
     private readonly configVarRepo: Repository<SkillConfigVar>,
 
@@ -109,26 +104,28 @@ export class InternalSkillsController {
    * Respects the `secret` spec declared in SKILL.md: if a key
    * is marked as `secret: true`, it is saved with isSecret=true.
    *
-   * Performs no ownership check — the request must come from the executor
-   * which has already verified that the skill exists before invoking the script.
+   * Bound to the run-token identity (like `invoke`): the caller may only write
+   * config vars on a skill it can access (owner / approved-org / team member),
+   * so one skill's run cannot overwrite another skill's stored secrets/config.
+   * Fail-closed: no identity → denied.
    */
   @Post(':id/save-config')
   @HttpCode(HttpStatus.OK)
   async saveConfig(
     @Param('id') skillId: string,
     @Body() dto: SaveConfigDto,
+    @Req() req: { internalAuth?: { sub?: string } },
   ): Promise<{ ok: boolean; saved: number }> {
     if (!dto.config || typeof dto.config !== 'object') {
       throw new BadRequestException('skills.internalConfigNotObject');
     }
 
-    const skill = await this.skillRepo.findOne({ where: { id: skillId } });
-    if (!skill) {
-      throw new NotFoundException(
-        I18nContext.current()?.t('skills.internalSkillNotFound', { args: { id: skillId } })
-        ?? `Skill ${skillId} not found`,
-      );
+    const callerId = internalUserId(req);
+    if (!callerId) {
+      throw new ForbiddenException('Run without identity: save-config denied.');
     }
+    // Access gate (throws NotFound if the caller cannot reach this skill).
+    const skill = await this.skillsService.findOne(skillId, callerId);
 
     const spec     = skill.configSpec ?? [];
     const entries  = Object.entries(dto.config);

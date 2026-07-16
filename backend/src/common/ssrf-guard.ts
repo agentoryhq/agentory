@@ -22,27 +22,31 @@
 import { ForbiddenException } from '@nestjs/common';
 import { lookup } from 'node:dns/promises';
 import { isIP } from 'node:net';
+import ipaddr from 'ipaddr.js';
 
-/** True if the IP (v4 or v6) belongs to a private/reserved range not publicly routable. */
+/**
+ * True unless the IP is unambiguously public (default-deny). Delegates the
+ * classification to a real IP parser instead of string/regex prefix matching,
+ * which missed non-dotted encodings — e.g. the IPv4-mapped `::ffff:7f00:1`
+ * (= 127.0.0.1) or `::ffff:a9fe:a9fe` (= 169.254.169.254 metadata) slipped
+ * through as "public". An IPv4-mapped address is unwrapped to its embedded v4
+ * and classified there; anything whose range is not `unicast` (the only publicly
+ * routable class for both families) — loopback, private, link-local, CGNAT,
+ * unique-local, NAT64/6to4/teredo, reserved, unparseable — is treated as internal.
+ */
 export function isPrivateIp(ip: string): boolean {
-  if (isIP(ip) === 4) {
-    const p = ip.split('.').map(Number);
-    if (p[0] === 0)   return true;                              // 0.0.0.0/8
-    if (p[0] === 10)  return true;                              // 10.0.0.0/8
-    if (p[0] === 127) return true;                              // loopback 127.0.0.0/8
-    if (p[0] === 169 && p[1] === 254) return true;              // link-local 169.254.0.0/16 (metadata EC2)
-    if (p[0] === 172 && p[1] >= 16 && p[1] <= 31) return true;  // 172.16.0.0/12
-    if (p[0] === 192 && p[1] === 168) return true;              // 192.168.0.0/16
-    if (p[0] === 100 && p[1] >= 64 && p[1] <= 127) return true; // CGNAT 100.64.0.0/10
-    return false;
+  let addr: ipaddr.IPv4 | ipaddr.IPv6;
+  try {
+    addr = ipaddr.parse(ip.replace(/^\[|\]$/g, ''));
+  } catch {
+    return true; // unparseable → fail-closed
   }
-  const v = ip.toLowerCase().replace(/^\[|\]$/g, '');
-  if (v === '::1' || v === '::') return true;                   // loopback / unspecified
-  if (v.startsWith('fe80')) return true;                        // link-local
-  if (v.startsWith('fc') || v.startsWith('fd')) return true;    // unique-local fc00::/7
-  const mapped = v.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);       // IPv4-mapped
-  if (mapped) return isPrivateIp(mapped[1]);
-  return false;
+  if (addr.kind() === 'ipv6') {
+    const v6 = addr as ipaddr.IPv6;
+    if (v6.isIPv4MappedAddress()) return v6.toIPv4Address().range() !== 'unicast';
+    return v6.range() !== 'unicast';
+  }
+  return (addr as ipaddr.IPv4).range() !== 'unicast';
 }
 
 /**
@@ -82,5 +86,58 @@ export async function assertPublicUrl(rawUrl: string): Promise<void> {
     if (isPrivateIp(a.address)) {
       throw new ForbiddenException(`Host resolves to a disallowed internal address: ${host} → ${a.address}`);
     }
+  }
+}
+
+/** Max redirect hops followed by safeFetch before giving up. */
+const MAX_REDIRECTS = 5;
+/** Headers dropped when a redirect crosses to a different origin (avoid credential leak). */
+const CROSS_ORIGIN_STRIP = ['authorization', 'cookie', 'proxy-authorization'];
+
+/**
+ * fetch() with the anti-SSRF guard applied to the initial URL AND to every redirect
+ * hop. The default fetch follows redirects transparently, which would bypass a
+ * one-shot `assertPublicUrl` check (a public URL that 302s to 169.254.169.254 or
+ * localhost). Here redirects are followed MANUALLY, re-validating each `Location`.
+ *
+ * Redirect method/body semantics (client-API oriented, not browser):
+ *   - 303        → GET, body dropped (the literal meaning of 303).
+ *   - 301/302/307/308 → method + body preserved (so an http→https upgrade of a POST
+ *     keeps working — the common real case; the destination is re-validated anyway).
+ * Credentials (Authorization/Cookie) are stripped on cross-origin hops, mirroring
+ * what the browser/undici follow does automatically.
+ */
+export async function safeFetch(rawUrl: string, init: RequestInit = {}): Promise<Response> {
+  let url = rawUrl;
+  let method = (init.method ?? 'GET').toUpperCase();
+  let body = init.body;
+  const headers = new Headers(init.headers as HeadersInit | undefined);
+
+  for (let hop = 0; ; hop++) {
+    await assertPublicUrl(url);
+    const resp = await fetch(url, { ...init, method, body, headers, redirect: 'manual' });
+
+    const isRedirect = resp.status >= 300 && resp.status < 400 && resp.status !== 304;
+    const loc = isRedirect ? resp.headers.get('location') : null;
+    if (!loc) return resp;
+
+    if (hop >= MAX_REDIRECTS) {
+      throw new ForbiddenException(`Too many redirects (>${MAX_REDIRECTS})`);
+    }
+
+    const prevOrigin = new URL(url).origin;
+    const next = new URL(loc, url); // resolves relative Location against the current URL
+
+    if (resp.status === 303 && method !== 'HEAD') {
+      method = 'GET';
+      body = undefined;
+      headers.delete('content-type');
+      headers.delete('content-length');
+    }
+    if (next.origin !== prevOrigin) {
+      for (const h of CROSS_ORIGIN_STRIP) headers.delete(h);
+    }
+    await resp.body?.cancel().catch(() => { /* body already consumed */ });
+    url = next.toString();
   }
 }

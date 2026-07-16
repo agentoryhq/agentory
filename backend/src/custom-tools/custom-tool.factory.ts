@@ -30,8 +30,8 @@
 import {DynamicStructuredTool} from '@langchain/core/tools';
 import type { AuditService } from '../audit/audit.service';
 import {z} from 'zod';
-import {Logger} from '@nestjs/common';
-import {assertPublicUrl} from '../common/ssrf-guard';
+import {Logger, ForbiddenException} from '@nestjs/common';
+import {safeFetch} from '../common/ssrf-guard';
 import {v4 as uuidv4} from 'uuid';
 import {CustomTool} from './custom-tool.entity';
 import {
@@ -373,18 +373,22 @@ async function executeHttp(
   const urlLog = urlObj.origin + urlObj.pathname;
   logger.log(`HTTP ${config.method} ${urlLog}`);
 
-  // Anti-SSRF guard: blocks EC2 metadata / internal IPs even if the URL comes from a binding/LLM
-  await assertPublicUrl(urlStr);
-
   let response: Response;
   try {
-    response = await fetch(urlStr, {
+    // safeFetch applies the anti-SSRF guard to the initial URL AND every redirect
+    // hop (blocks EC2 metadata / internal IPs even if the URL comes from a binding/LLM).
+    response = await safeFetch(urlStr, {
       method:  config.method,
       headers,
       body,
       signal:  AbortSignal.timeout(config.timeoutMs ?? 10_000),
     });
   } catch (err: any) {
+    // An SSRF/security block from safeFetch is a ForbiddenException: let it propagate
+    // so the caller reports a real failure — the outer wrapper turns it into a string
+    // for the ReAct loop but rethrows it for the `/test` dry-run (throwOnError). Only
+    // genuine network/timeout errors are downgraded to a ReAct-friendly string here.
+    if (err instanceof ForbiddenException) throw err;
     const msg = err?.name === 'TimeoutError'
       ? `Timeout after ${config.timeoutMs ?? 10_000}ms`
       : `Network error: ${err.message}`;
@@ -484,6 +488,25 @@ function lacksWhere(stmt: string): boolean {
   return !/\bwhere\b/i.test(stripSqlComments(stmt));
 }
 
+/** Server filesystem / OS access functions — never legitimate for a data tool. */
+const SQL_FS_OS_FUNCS = /\b(pg_read_file|pg_read_binary_file|pg_ls_dir|pg_stat_file|lo_import|lo_export|load_file|xp_cmdshell|openrowset|opendatasource|utl_file)\b/i;
+/** `SELECT ... INTO OUTFILE|DUMPFILE`: writes a file to the server FS (MySQL). */
+const SQL_INTO_FILE = /\binto\b\s+(outfile|dumpfile)\b/i;
+
+/**
+ * Side effect hidden inside a statement the verb-classifier calls a `select`:
+ *  - 'fs'   → reads/writes the server filesystem or runs OS (blocked always).
+ *  - 'into' → `SELECT ... INTO <table>` materializes a table (a write; blocked on
+ *             read-only tools).
+ * Returns null for a pure read.
+ */
+function selectSideEffect(stmt: string): 'fs' | 'into' | null {
+  const s = stripStringLiterals(stripSqlComments(stmt));
+  if (SQL_FS_OS_FUNCS.test(s) || SQL_INTO_FILE.test(s)) return 'fs';
+  if (/\binto\b/i.test(s)) return 'into';
+  return null;
+}
+
 /**
  * Extracts the table names referenced by a statement (best-effort, after
  * FROM/JOIN/INTO/UPDATE). Normalizes: removes quoting, drops the schema (`db.tab`→`tab`)
@@ -556,6 +579,18 @@ export function evaluateSqlPolicy(
     const op = classifyStatement(stmt);
     if (!allowedOps.includes(op)) {
       return deny(`Security error: operation "${op}" not allowed for this tool (allowed: ${allowedOps.join(', ')}).`);
+    }
+    // A statement the verb-classifier calls `select` can still write or touch the
+    // server FS/OS (SELECT INTO, INTO OUTFILE, pg_read_file, xp_cmdshell, …). These
+    // slip past the operation allowlist, so gate them explicitly.
+    if (op === 'select') {
+      const side = selectSideEffect(stmt);
+      if (side === 'fs') {
+        return deny('Security error: server filesystem/OS access (e.g. INTO OUTFILE, pg_read_file, xp_cmdshell) is not allowed.');
+      }
+      if (side === 'into' && isReadOnlyTool) {
+        return deny('Security error: "SELECT ... INTO" writes a table and is not allowed on a read-only tool.');
+      }
     }
     if (config.requireWhere && (op === 'update' || op === 'delete') && lacksWhere(stmt)) {
       return deny(`Security error: ${op.toUpperCase()} without a WHERE clause is not allowed (requireWhere active).`);
@@ -949,6 +984,52 @@ async function executeSql(
 
 const MONGO_WRITE_OPS: MongoOp[] = ['insertOne','insertMany','updateOne','updateMany','deleteOne','deleteMany'];
 
+/**
+ * True if a Mongo aggregate pipeline contains a write stage ($out/$merge), which
+ * persists/overwrites a collection (and $merge can target another DB) despite
+ * `aggregate` being classified as a read op. $out/$merge are only ever top-level
+ * stages, so a top-level scan is complete.
+ */
+export function aggregateHasWriteStage(pipeline: unknown): boolean {
+  return Array.isArray(pipeline) && pipeline.some(
+    (s) => s !== null && typeof s === 'object' && ('$out' in s || '$merge' in s),
+  );
+}
+
+/**
+ * All OTHER collections an aggregate pipeline reaches — $lookup / $graphLookup /
+ * $unionWith / $out / $merge — recursing into nested sub-pipelines ($lookup.pipeline,
+ * $unionWith.pipeline, $facet). Used to extend the manifest collection-deny to
+ * pipeline stages (the top-level check only sees spec.collection).
+ */
+export function aggregateReferencedCollections(pipeline: unknown): string[] {
+  const out: string[] = [];
+  const add = (v: unknown) => { if (typeof v === 'string' && v) out.push(v); };
+  const walk = (p: unknown): void => {
+    if (!Array.isArray(p)) return;
+    for (const stage of p) {
+      if (!stage || typeof stage !== 'object') continue;
+      const s = stage as Record<string, any>;
+      if (s.$lookup) { add(s.$lookup.from); walk(s.$lookup.pipeline); }
+      if (s.$graphLookup) add(s.$graphLookup.from);
+      if (s.$unionWith) {
+        if (typeof s.$unionWith === 'string') add(s.$unionWith);
+        else { add(s.$unionWith.coll); walk(s.$unionWith.pipeline); }
+      }
+      if (s.$out) add(typeof s.$out === 'string' ? s.$out : s.$out?.coll);
+      if (s.$merge) {
+        const into = typeof s.$merge === 'string' ? s.$merge : s.$merge?.into;
+        add(typeof into === 'string' ? into : into?.coll);
+      }
+      if (s.$facet && typeof s.$facet === 'object') {
+        for (const sub of Object.values(s.$facet)) walk(sub);
+      }
+    }
+  };
+  walk(pipeline);
+  return out;
+}
+
 const MONGO_SYNTAX_NOTE =
   'Write the spec as JSON: { "collection":"name", "op":"find"|"aggregate"|"countDocuments"|"distinct", ' +
   '"filter":{…} | "pipeline":[…], "projection":{…}, "sort":{…}, "limit":N }. Mongo queries are NOT SQL.';
@@ -1082,12 +1163,35 @@ async function executeMongo(
   if (config.confirmDestructive && MONGO_WRITE_OPS.includes(spec.op) && args.confirm !== true) {
     return `Write operation (${spec.op}): requires confirmation. Call the tool again with confirm=true.`;
   }
+  // `aggregate` is a read op, but a pipeline ending in $out/$merge WRITES (overwrites
+  // or creates a collection, and $merge can target another DB). Treat those stages as
+  // a write: block them unless the tool explicitly permits writes, and honour the
+  // destructive-confirm guardrail. ($out/$merge are only ever top-level stages.)
+  if (spec.op === 'aggregate' && aggregateHasWriteStage(spec.pipeline)) {
+    const toolAllowsWrite = allowedOps.some((op) => MONGO_WRITE_OPS.includes(op));
+    if (!toolAllowsWrite) {
+      return `Security error: aggregation write stages ($out/$merge) are not allowed for this tool (read-only capability).`;
+    }
+    if (config.confirmDestructive && args.confirm !== true) {
+      return `Aggregation writes to a collection ($out/$merge): requires confirmation. Call the tool again with confirm=true.`;
+    }
+  }
 
   // deny of collections/fields from the manifest (best-effort on the top-level fields cited).
   if (manifest) {
     const coll = spec.collection.toLowerCase();
-    if (deniedCollectionNames(manifest).has(coll)) {
+    const deniedColls = deniedCollectionNames(manifest);
+    if (deniedColls.has(coll)) {
       return `Security error: collection "${spec.collection}" not accessible (denied in the schema).`;
+    }
+    // Extend the deny to collections reached via aggregate pipeline stages
+    // ($lookup/$graphLookup/$unionWith/$out/$merge), incl. nested sub-pipelines.
+    if (spec.op === 'aggregate') {
+      for (const c of aggregateReferencedCollections(spec.pipeline)) {
+        if (deniedColls.has(c.toLowerCase())) {
+          return `Security error: collection "${c}" not accessible (denied in the schema).`;
+        }
+      }
     }
     const deniedRefs = deniedFieldRefs(manifest);
     const referenced = new Set<string>([

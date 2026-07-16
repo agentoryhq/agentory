@@ -11,6 +11,7 @@ import { AppConfigModule } from '../app-config/app-config.module';
 import { EmbedModule } from '../embed/embed.module';
 import { VectorDbModule } from '../vector-db/vector-db.module';
 import { TeamsModule } from '../teams/teams.module';
+import { ChatsModule } from '../chats/chats.module';
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { TeamsModule } from '../teams/teams.module';
     EmbedModule,     // embeddings for the hybrid retrieval (F2)
     VectorDbModule,  // vector leg of the hybrid retrieval (F2)
     TeamsModule,     // membership checks for shared notes (F4)
+    ChatsModule,     // chat-access check for on-demand extraction (M4/M5)
   ],
   providers: [UserMemoryService, MemoryEvolutionService],
   controllers: [UserMemoryController],

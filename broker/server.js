@@ -25,6 +25,16 @@ const http = require('http');
 const {execFile} = require('child_process');
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
+
+/** Constant-time string compare (avoids a timing side-channel on the service key). */
+function safeEqual(a, b) {
+    if (typeof a !== 'string' || typeof b !== 'string') return false;
+    const ab = Buffer.from(a);
+    const bb = Buffer.from(b);
+    if (ab.length !== bb.length) return false;
+    return crypto.timingSafeEqual(ab, bb);
+}
 
 const PORT = parseInt(process.env.PORT || '4100', 10);
 const API_KEY = process.env.SERVICE_API_KEY || '';
@@ -419,8 +429,8 @@ const server = http.createServer((req, res) => {
 
     if (req.method !== 'POST' || req.url !== '/run-job') return send(404, {error: 'not found'});
 
-    // Service-to-service auth
-    if (!API_KEY || req.headers['x-service-key'] !== API_KEY) return send(401, {error: 'unauthorized'});
+    // Service-to-service auth (constant-time to avoid a timing side-channel)
+    if (!API_KEY || !safeEqual(req.headers['x-service-key'], API_KEY)) return send(401, {error: 'unauthorized'});
 
     let raw = '';
     req.on('data', (c) => {

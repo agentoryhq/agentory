@@ -2,6 +2,7 @@ import './env';   // loads .env.executor (root) — MUST come before everything 
 import Fastify from 'fastify';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
+import { timingSafeEqual } from 'crypto';
 import { installSkillDeps } from './install';
 import { runPython } from './runners/python.runner';
 import { runJs }     from './runners/js.runner';
@@ -49,13 +50,22 @@ const app = Fastify({
 // respond 401/503. The executor stays on the internal network anyway (no host port).
 const SERVICE_API_KEY = process.env.SERVICE_API_KEY ?? '';
 
+/** Constant-time string compare (avoids a timing side-channel on the service key). */
+function safeEqual(a: unknown, b: string): boolean {
+  if (typeof a !== 'string') return false;
+  const ab = Buffer.from(a);
+  const bb = Buffer.from(b);
+  if (ab.length !== bb.length) return false;
+  return timingSafeEqual(ab, bb);
+}
+
 app.addHook('onRequest', async (req, reply) => {
   if (req.method === 'GET' && req.url.startsWith('/health')) return;   // health is free
   if (!SERVICE_API_KEY) {
     reply.code(503).send({ error: 'SERVICE_API_KEY not configured on the executor' });
     return reply;
   }
-  if (req.headers['x-service-key'] !== SERVICE_API_KEY) {
+  if (!safeEqual(req.headers['x-service-key'], SERVICE_API_KEY)) {
     reply.code(401).send({ error: 'unauthorized' });
     return reply;
   }

@@ -22,7 +22,7 @@
  * }
  */
 import {
-  Controller, Post, Body, UseGuards,
+  Controller, Post, Body, Req, UseGuards, ForbiddenException,
   HttpCode, HttpStatus, Logger,
 } from '@nestjs/common';
 import { IsString, IsObject, IsOptional, IsUUID } from 'class-validator';
@@ -70,22 +70,41 @@ export class InternalDaemonsController {
    */
   @Post('events')
   @HttpCode(HttpStatus.OK)
-  async receiveEvent(@Body() dto: DaemonEventDto): Promise<{ ok: boolean }> {
+  async receiveEvent(
+    @Body() dto: DaemonEventDto,
+    @Req() req: { internalAuth?: { sub?: string; did?: string } },
+  ): Promise<{ ok: boolean }> {
+    // Authoritative identity from the signed DAEMON token (sub=owner, did=daemonId),
+    // NOT from the body: a daemon must not update another daemon's state, spoof
+    // notifications to another user, or DoS another tenant's daemon by passing
+    // arbitrary user_id/daemon_id. Fail-closed if the token is not daemon-scoped.
+    const userId   = req.internalAuth?.sub;
+    const daemonId = req.internalAuth?.did;
+    if (!userId || !daemonId) {
+      throw new ForbiddenException('Daemon event requires a daemon-scoped token.');
+    }
+    if (dto.daemon_id !== daemonId || dto.user_id !== userId) {
+      this.logger.warn(
+        `[internal] daemon event body/token mismatch (token daemon=${daemonId.slice(0, 8)} ` +
+        `user=${userId}; body daemon=${dto.daemon_id?.slice(0, 8)} user=${dto.user_id}) — using token`,
+      );
+    }
+
     this.logger.debug(
-      `[internal] Evento daemon: daemon=${dto.daemon_id.slice(0, 8)} ` +
-      `skill=${dto.skill_id.slice(0, 8)} user=${dto.user_id} type=${dto.event_type}`,
+      `[internal] Evento daemon: daemon=${daemonId.slice(0, 8)} ` +
+      `skill=${dto.skill_id.slice(0, 8)} user=${userId} type=${dto.event_type}`,
     );
 
     // 1. Update lastEventAt in the DB
     try {
-      await this.daemonsSvc.recordEvent(dto.daemon_id);
+      await this.daemonsSvc.recordEvent(daemonId);
     } catch { /* non-critical */ }
 
     // 2. Special handling for daemon_exit: update DB state
     if (dto.event_type === 'daemon_exit') {
       try {
         await this.daemonsSvc.handleDaemonExit(
-          dto.daemon_id,
+          daemonId,
           (dto.payload?.exit_code as number | null) ?? null,
         );
       } catch { /* non-critical */ }
@@ -96,9 +115,9 @@ export class InternalDaemonsController {
     let notifId: string | null = null;
     try {
       const saved = await this.notifSvc.create({
-        userId:    dto.user_id,
+        userId,
         source:    'skill_daemon',
-        sourceId:  dto.daemon_id,
+        sourceId:  daemonId,
         eventType: dto.event_type,
         payload:   {
           ...(dto.payload ?? {}),
@@ -112,9 +131,9 @@ export class InternalDaemonsController {
     }
 
     // 4. Notify the user via Socket.IO (includes the DB id for frontend consistency)
-    this.notifications.emitToUser(dto.user_id, 'skill_event', {
+    this.notifications.emitToUser(userId, 'skill_event', {
       id:         notifId,           // may be null if the save failed
-      daemon_id:  dto.daemon_id,
+      daemon_id:  daemonId,
       skill_id:   dto.skill_id,
       event_type: dto.event_type,
       payload:    dto.payload ?? {},

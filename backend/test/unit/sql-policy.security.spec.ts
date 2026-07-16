@@ -31,6 +31,39 @@ describe('SQL policy — read-only by default', () => {
   });
 });
 
+describe('SQL policy — side-effecting SELECTs (L1)', () => {
+  it('blocks server FS/OS functions on a read-only tool (pg_read_file)', () => {
+    const r = evaluateSqlPolicy(base({}), "SELECT pg_read_file('/etc/passwd')", {});
+    expect(r.error).toMatch(/filesystem\/OS access/);
+  });
+
+  it('blocks SELECT ... INTO OUTFILE (file write) even with write ops', () => {
+    const r = evaluateSqlPolicy(base({ operations: ['select', 'insert', 'update', 'delete', 'ddl'] }),
+      "SELECT * FROM users INTO OUTFILE '/tmp/x'", {});
+    expect(r.error).toMatch(/filesystem\/OS access/);
+  });
+
+  it('blocks xp_cmdshell', () => {
+    const r = evaluateSqlPolicy(base({}), "SELECT * FROM OPENROWSET('x','y','z')", {});
+    expect(r.error).toMatch(/filesystem\/OS access/);
+  });
+
+  it('blocks SELECT ... INTO <table> on a read-only tool', () => {
+    const r = evaluateSqlPolicy(base({}), 'SELECT id, name INTO archive_users FROM users', {});
+    expect(r.error).toMatch(/SELECT \.\.\. INTO/);
+  });
+
+  it('allows a plain SELECT that merely contains the word in a string/column', () => {
+    const r = evaluateSqlPolicy(base({}), "SELECT id FROM users WHERE note = 'into the woods'", {});
+    expect(r.error).toBeUndefined();
+  });
+
+  it('does not touch INSERT INTO (a normal write op)', () => {
+    const r = evaluateSqlPolicy(base({ operations: ['select', 'insert'] }), 'INSERT INTO log(x) VALUES (1)', {});
+    expect(r.error).toBeUndefined();
+  });
+});
+
 describe('SQL policy — declared operations', () => {
   it('[select,insert]: INSERT allowed, not read-only', () => {
     const r = evaluateSqlPolicy(base({ operations: ['select', 'insert'] }), 'INSERT INTO log(x) VALUES (1)', {});

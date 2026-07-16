@@ -10,5 +10,8 @@
   "engineUnsupported": "Engine \"{engine}\" is not supported.",
   "browseOnlyFileshare": "Folder browsing is only available for file-share sources (SMB/SFTP/WebDAV).",
   "notFileShare": "The source is not a shared folder (SMB/SFTP/WebDAV).",
-  "fileTooLargeIngest": "File too large for indexing ({size} bytes > {max})."
+  "localRequiresIdentity": "Access to local files requires an identity.",
+  "fileTooLargeIngest": "File too large for indexing ({size} bytes > {max}).",
+  "filePathNotAllowed": "File path not allowed.",
+  "fileNotFound": "File not found."
 }

@@ -49,7 +49,9 @@ import { SkillExecutorClient } from './skill-executor.client';
 import { skillNetworkParams, networkCatalog, validNetworkIds, SkillNetwork } from './skill-networks';
 import { EgressSyncService } from './egress-sync.service';
 import { buildSkillTool, buildToolName } from './skill-tool.factory';
+import { mintRunToken } from '../common/internal-token/internal-token';
 import { TeamsService } from '../teams/teams.service';
+import { ProjectsService } from '../projects/projects.service';
 import { FilesService } from '../files/files.service';
 import { LlmProviderService } from '../app-config/llm-provider.service';
 import { AuditService } from '../audit/audit.service';
@@ -119,6 +121,7 @@ export class SkillsService implements OnModuleInit {
     private readonly executorClient: SkillExecutorClient,
     private readonly config:         ConfigService,
     private readonly teamsService:   TeamsService,
+    private readonly projectsService: ProjectsService,
     private readonly filesService:   FilesService,
     private readonly egressSync:     EgressSyncService,
     private readonly llmProvider:    LlmProviderService,
@@ -1192,6 +1195,15 @@ export class SkillsService implements OnModuleInit {
   async assignToProject(skillId: string, projectId: string, userId: string): Promise<SkillProjectAssignment> {
     const skill = await this.findOne(skillId, userId);
 
+    // The caller must also be able to WRITE the target project, otherwise a user
+    // could inject their own skill (a tool) into another tenant's project context.
+    if (!(await this.projectsService.canWrite(projectId, userId))) {
+      throw new ForbiddenException(
+        I18nContext.current()?.t('skills.noProjectWriteAccess', { args: { projectId } })
+        ?? `No write access to project "${projectId}"`,
+      );
+    }
+
     if (skill.status !== 'ready') {
       throw new BadRequestException(
         I18nContext.current()?.t('skills.notReadyForAssign', { args: { name: skill.name, status: skill.status } })
@@ -1227,8 +1239,16 @@ export class SkillsService implements OnModuleInit {
     await this.assignmentRepo.remove(assignment);
   }
 
-  /** Lists the skills assigned to a project. */
-  async findByProject(projectId: string): Promise<Skill[]> {
+  /** Lists the skills assigned to a project (only for members of that project). */
+  async findByProject(projectId: string, userId: string): Promise<Skill[]> {
+    // Gate on project access: without it any user could enumerate another project's
+    // assigned skills and their scripts by guessing the projectId.
+    if (!(await this.projectsService.canAccess(projectId, userId))) {
+      throw new ForbiddenException(
+        I18nContext.current()?.t('skills.noProjectAccess', { args: { projectId } })
+        ?? `No access to project "${projectId}"`,
+      );
+    }
     const assignments = await this.assignmentRepo.find({
       where: { projectId },
       relations: { skill: { scripts: true } },
@@ -1746,6 +1766,11 @@ export class SkillsService implements OnModuleInit {
       input,
       timeout_ms: timeoutMs,
       config,
+      // Propagate the caller's identity to the invoked script so it can reach the
+      // internal APIs (files/vector/datasources/save-config) AS the caller — the
+      // same run-token mechanism as the primary skill-tool path. Runs-as caller;
+      // the executor sets USER_ID + x-internal-token. TTL covers the run timeout.
+      ...(actorId ? { user_id: actorId, run_token: mintRunToken(actorId, timeoutMs + 30_000) } : {}),
       ...skillNetworkParams(skill),
     });
 

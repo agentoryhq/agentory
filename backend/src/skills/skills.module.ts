@@ -13,6 +13,7 @@ import { SkillsController } from './skills.controller';
 import { InternalSkillsController } from './internal-skills.controller';
 import { RegistryService } from './registry.service';
 import { TeamsModule } from '../teams/teams.module';
+import { ProjectsModule } from '../projects/projects.module';
 import { AuditModule } from '../audit/audit.module';
 import { FilesModule } from '../files/files.module';
 import { AppConfigModule } from '../app-config/app-config.module';
@@ -23,6 +24,7 @@ import { NotificationsModule } from '../notifications/notifications.module';
     TypeOrmModule.forFeature([Skill, SkillScript, SkillProjectAssignment, SkillConfigVar]),
     ConfigModule,
     TeamsModule,
+    ProjectsModule,
     AuditModule,
     FilesModule,
     AppConfigModule,   // LlmProviderService for the descriptive→typed compilation (S3)

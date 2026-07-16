@@ -8,6 +8,7 @@ import { Repository, LessThan } from 'typeorm';
 import { v4 as uuidv4 } from 'uuid';
 import { Feedback, FeedbackRating, FeedbackScope } from './feedback.entity';
 import { Message } from '../messages/messages.entity';
+import { ChatsService } from '../chats/chats.service';
 import { AppConfigService } from '../app-config/app-config.service';
 import { EmbeddingProviderService } from '../embed/embedding.provider.service';
 import { VectorStoreProviderService } from '../vector-db/vector-store-provider.service';
@@ -41,6 +42,7 @@ export class FeedbackService {
   constructor(
     @InjectRepository(Feedback) private readonly repo: Repository<Feedback>,
     @InjectRepository(Message)  private readonly messageRepo: Repository<Message>,
+    @Inject(ChatsService)       private readonly chats: ChatsService,
     @Inject(AppConfigService)   private readonly appConfig: AppConfigService,
     @Optional() @Inject(EmbeddingProviderService) private readonly embedding: EmbeddingProviderService | null,
     @Optional() @Inject(VectorStoreProviderService) private readonly vectorStore: VectorStoreProviderService | null,
@@ -82,6 +84,11 @@ export class FeedbackService {
   async createOrUpdate(userId: string, dto: CreateFeedbackDto): Promise<Feedback> {
     const message = await this.messageRepo.findOne({ where: { id: dto.messageId } });
     if (!message) throw new NotFoundException('feedback.messageNotFound');
+
+    // Authz: the caller must be able to access the chat the message belongs to.
+    // Without this, any user could read another tenant's prompt/answer by iterating
+    // messageIds (the feedback stores question/answer snippets and returns them).
+    await this.chats.findOne(message.chatId, userId);
 
     // Question = last user message preceding the rated answer (same chat)
     const prevUser = await this.messageRepo.findOne({

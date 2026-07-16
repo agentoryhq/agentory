@@ -8,6 +8,7 @@ import { DynamicStructuredTool } from '@langchain/core/tools';
 import { z } from 'zod';
 import { UserMemory, UserMemoryScope } from './user-memory.entity';
 import { Chat } from '../chats/chats.entity';
+import { ChatsService } from '../chats/chats.service';
 import { Message } from '../messages/messages.entity';
 import { User } from '../users/users.entity';
 import { AppConfigService } from '../app-config/app-config.service';
@@ -101,6 +102,7 @@ export class UserMemoryService {
     @Inject(EmbeddingProviderService)  private readonly embedding: EmbeddingProviderService,
     @Inject(VectorStoreProviderService) private readonly vectorStore: VectorStoreProviderService,
     @Inject(TeamsService)         private readonly teams: TeamsService,
+    @Inject(ChatsService)         private readonly chats: ChatsService,
     @Optional() private readonly evolution?: MemoryEvolutionService,
   ) {}
 
@@ -594,6 +596,10 @@ export class UserMemoryService {
 
   /** On-demand variant: autonomously loads the chat history and extracts. */
   async extractForChat(userId: string, chatId: string): Promise<MemoryProposal[]> {
+    // Authz: the caller must be able to access this chat. Without it, a user could
+    // distill durable facts from another tenant's conversation by passing its chatId.
+    // (The per-turn path maybeExtractOnTurn is already gated by the chat flow.)
+    await this.chats.findOne(chatId, userId);
     const history = await this.messageRepo.find({
       where: { chatId },
       order: { createdAt: 'ASC' },

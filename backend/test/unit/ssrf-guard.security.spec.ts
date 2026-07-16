@@ -32,6 +32,19 @@ describe('SSRF guard — destinazioni bloccate', () => {
   it('il messaggio per la destinazione interna nomina l\'host (utente informato)', async () => {
     await expect(assertPublicUrl('http://169.254.169.254/')).rejects.toThrow(/Internal destination not allowed: 169\.254\.169\.254/);
   });
+
+  // H2 — non-dotted IPv6 encodings that the old regex-based classifier let through.
+  const bypasses: [string, string][] = [
+    ['IPv4-mapped hex loopback', 'http://[::ffff:7f00:1]/'],
+    ['IPv4-mapped hex metadata EC2', 'http://[::ffff:a9fe:a9fe]/latest/meta-data/'],
+    ['NAT64 embedded metadata', 'http://[64:ff9b::a9fe:a9fe]/'],
+    ['6to4 embedding loopback', 'http://[2002:7f00:1::1]/'],
+  ];
+  for (const [label, url] of bypasses) {
+    it(`blocca il bypass ${label}`, async () => {
+      await expect(assertPublicUrl(url)).rejects.toThrow();
+    });
+  }
 });
 
 describe('SSRF guard — destinazioni consentite', () => {
@@ -45,6 +58,9 @@ describe('isPrivateIp — classificazione range', () => {
   it.each([
     '0.0.0.0', '10.1.2.3', '127.0.0.1', '169.254.1.1', '172.16.0.1', '192.168.0.1', '100.64.0.1',
     '::1', '::', 'fe80::1', 'fc00::1', 'fd12::1', '::ffff:127.0.0.1',
+    // H2 — non-dotted / embedded encodings the regex classifier missed
+    '::ffff:7f00:1', '::ffff:a9fe:a9fe', '64:ff9b::a9fe:a9fe', '2002:7f00:1::1',
+    'not-an-ip',
   ])('%s è privato/riservato', (ip) => {
     expect(isPrivateIp(ip)).toBe(true);
   });

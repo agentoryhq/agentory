@@ -14,6 +14,8 @@
   "scriptByFilenameNotFound": "Script \"{filename}\" not found in skill \"{name}\".",
   "onlyOrgSkillsCanBeApproved": "Only org skills can be approved",
   "notReadyForAssign": "Skill \"{name}\" is not ready (status: {status})",
+  "noProjectAccess": "No access to project \"{projectId}\".",
+  "noProjectWriteAccess": "No write access to project \"{projectId}\".",
   "alreadyAssignedToProject": "Skill already assigned to this project",
   "assignmentNotFound": "Assignment not found",
   "noPermissionToRemoveAssignment": "You do not have permission to remove this assignment",

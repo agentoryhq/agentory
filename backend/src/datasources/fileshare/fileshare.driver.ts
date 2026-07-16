@@ -305,7 +305,7 @@ function localBaseDir(connStr: string): string {
   return path.resolve(base);
 }
 
-/** Absolute real path under `base`, with anti-traversal guard (native fs). */
+/** Absolute path under `base`, with a LEXICAL anti-traversal guard (no symlink check). */
 function localSafeAbs(base: string, rel: string): string {
   const abs = path.resolve(base, rel || '');
   if (abs !== base && !abs.startsWith(base + path.sep)) {
@@ -314,15 +314,42 @@ function localSafeAbs(base: string, rel: string): string {
   return abs;
 }
 
+/** realpath of `p`, or of its nearest existing ancestor if `p` does not exist yet. */
+async function realpathNearest(p: string): Promise<string> {
+  let cur = p;
+  for (;;) {
+    try {
+      return await fs.realpath(cur);
+    } catch (e: any) {
+      if (e?.code !== 'ENOENT') throw e;
+      const parent = path.dirname(cur);
+      if (parent === cur) throw e; // reached the fs root without finding an existing path
+      cur = parent;
+    }
+  }
+}
+
 function localAdapter(connStr: string): Adapter {
   const base = localBaseDir(connStr);
   const toRel = (abs: string) =>
     abs === base ? '' : abs.slice(base.length + 1).split(path.sep).join('/');
 
+  // Lexical guard + symlink-aware containment: resolve the real path (or the nearest
+  // existing ancestor, for write targets) and confirm it stays inside `base`, so a
+  // symlink planted under `base` cannot point read/write/stream outside it.
+  const safeAbs = async (rel: string): Promise<string> => {
+    const abs = localSafeAbs(base, rel);
+    const [realBase, realTarget] = await Promise.all([fs.realpath(base), realpathNearest(abs)]);
+    if (realTarget !== realBase && !realTarget.startsWith(realBase + path.sep)) {
+      throw new Error(`Path not allowed (outside the base): "${rel}"`);
+    }
+    return abs;
+  };
+
   return {
     async test() { await fs.access(base); },
     async list(rel) {
-      const dir = localSafeAbs(base, rel);
+      const dir = await safeAbs(rel);
       const names = await fs.readdir(dir, { withFileTypes: true });
       const out: FileEntry[] = [];
       for (const d of names) {
@@ -338,21 +365,21 @@ function localAdapter(connStr: string): Adapter {
       }
       return out;
     },
-    async read(rel) { return fs.readFile(localSafeAbs(base, rel)); },
-    async size(rel) { const st = await fs.stat(localSafeAbs(base, rel)); return st.size; },
+    async read(rel) { return fs.readFile(await safeAbs(rel)); },
+    async size(rel) { const st = await fs.stat(await safeAbs(rel)); return st.size; },
     async openStream(rel, range) {
       const o: any = {};
       if (range?.start != null) o.start = range.start;
       if (range?.end   != null) o.end   = range.end;     // fs: end inclusive
-      return fsCreateReadStream(localSafeAbs(base, rel), o);
+      return fsCreateReadStream(await safeAbs(rel), o);
     },
     async write(rel, data) {
-      const abs = localSafeAbs(base, rel);
+      const abs = await safeAbs(rel);
       await fs.mkdir(path.dirname(abs), { recursive: true });
       await fs.writeFile(abs, data);
     },
     async remove(rel, recursive) {
-      const abs = localSafeAbs(base, rel);
+      const abs = await safeAbs(rel);
       const st = await fs.stat(abs).catch(() => null);
       if (!st) throw new Error(`File not found: ${rel}`);
       if (st.isDirectory()) await fs.rm(abs, { recursive, force: false });

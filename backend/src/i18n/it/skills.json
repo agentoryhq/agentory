@@ -14,6 +14,8 @@
   "scriptByFilenameNotFound": "Script \"{filename}\" non trovato nella skill \"{name}\".",
   "onlyOrgSkillsCanBeApproved": "Solo le skill org possono essere approvate",
   "notReadyForAssign": "La skill \"{name}\" non è pronta (status: {status})",
+  "noProjectAccess": "Nessun accesso al progetto \"{projectId}\".",
+  "noProjectWriteAccess": "Nessun accesso in scrittura al progetto \"{projectId}\".",
   "alreadyAssignedToProject": "Skill già assegnata a questo progetto",
   "assignmentNotFound": "Assegnazione non trovata",
   "noPermissionToRemoveAssignment": "Non hai i permessi per rimuovere questa assegnazione",

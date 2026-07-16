@@ -13,7 +13,7 @@
  */
 import {
   Injectable, Logger, NotFoundException, Inject, BadRequestException,
-  ConflictException, Optional,
+  ConflictException, Optional, ForbiddenException,
 } from '@nestjs/common';
 import { I18nContext } from 'nestjs-i18n';
 import { ConfigService } from '@nestjs/config';
@@ -133,11 +133,19 @@ export class DataSourcesService {
   /** Id of the virtual "Local" source (backend filesystem, not in the DB). */
   static readonly LOCAL_SOURCE_ID = 'local';
 
-  /** Virtual connection string of the 'local' source = SKILLS_OUTPUT_DIR. */
-  private localConnStr(): string {
+  /**
+   * Virtual connection string of the 'local' source, CONFINED to the caller's
+   * per-user subdir of SKILLS_OUTPUT_DIR — where skills/sandbox physically write
+   * their outputs (per-tenant isolation). Mirrors `internal-datasources.controller`:
+   * without the `<userId>` subdir the shared root would expose every tenant's
+   * outputs (stat/stream by an arbitrary `path`). Cross-tenant SHARING (team/project)
+   * stays served by the access-aware File download (by-id), not by the raw fileshare.
+   */
+  private localConnStr(userId: string): string {
     const uploadDir = this.config.get<string>('UPLOAD_DIR', './uploads');
     const out = this.config.get<string>('SKILLS_OUTPUT_DIR', path.join(uploadDir, 'skills-output'));
-    return `local://${path.resolve(out)}`;
+    const sub = (userId || '').replace(/[^a-zA-Z0-9_-]/g, '') || '_shared';
+    return `local://${path.join(path.resolve(out), sub)}`;
   }
 
   /**
@@ -150,7 +158,14 @@ export class DataSourcesService {
     userId: string,
   ): Promise<{ engine: FileShareEngine; connectionString: string }> {
     if (sourceId === DataSourcesService.LOCAL_SOURCE_ID) {
-      return { engine: 'local', connectionString: this.localConnStr() };
+      // Fail-closed: no identity → no access to the local outputs (never the shared root).
+      if (!userId) {
+        throw new ForbiddenException(
+          I18nContext.current()?.t('datasources.localRequiresIdentity')
+          ?? 'Access to local files requires an identity',
+        );
+      }
+      return { engine: 'local', connectionString: this.localConnStr(userId) };
     }
     const ds = await this.resolveDataSource(sourceId, userId); // scope check + decrypt
     if (engineFamily(ds.engine) !== 'fileshare') {
@@ -161,10 +176,35 @@ export class DataSourcesService {
     return { engine: ds.engine as FileShareEngine, connectionString: ds.connectionString };
   }
 
+  /**
+   * Maps low-level file-share driver errors to proper HTTP statuses so a
+   * containment/anti-traversal rejection surfaces as 403 (not a raw 500) and a
+   * missing path (including a per-user base dir that does not exist yet) as 404.
+   * Any other error is rethrown unchanged. Applies to every engine.
+   */
+  private mapFileShareError(err: unknown): never {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (/outside the base/i.test(msg)) {
+      throw new ForbiddenException(
+        I18nContext.current()?.t('datasources.filePathNotAllowed') ?? 'File path not allowed',
+      );
+    }
+    if (/ENOENT|no such file or directory/i.test(msg)) {
+      throw new NotFoundException(
+        I18nContext.current()?.t('datasources.fileNotFound') ?? 'File not found',
+      );
+    }
+    throw err;
+  }
+
   /** Size (bytes) of a file in a file-share source, with scope check. */
   async statFileShare(sourceId: string, userId: string, rel: string): Promise<number> {
     const { engine, connectionString } = await this.resolveFileShare(sourceId, userId);
-    return fileshareDriver.statFile(engine, connectionString, rel);
+    try {
+      return await fileshareDriver.statFile(engine, connectionString, rel);
+    } catch (err) {
+      this.mapFileShareError(err);
+    }
   }
 
   /**
@@ -178,7 +218,11 @@ export class DataSourcesService {
     range?: { start?: number; end?: number },
   ): Promise<Readable> {
     const { engine, connectionString } = await this.resolveFileShare(sourceId, userId);
-    return fileshareDriver.openFileStream(engine, connectionString, rel, range);
+    try {
+      return await fileshareDriver.openFileStream(engine, connectionString, rel, range);
+    } catch (err) {
+      this.mapFileShareError(err);
+    }
   }
 
   /**

@@ -21,8 +21,9 @@
  * re-resolving per run mitigates DNS-rebinding between check and connect.
  */
 import { ForbiddenException } from '@nestjs/common';
-import { lookup } from 'node:dns/promises';
+import { lookup, resolveSrv } from 'node:dns/promises';
 import { isIP } from 'node:net';
+import ipaddr from 'ipaddr.js';
 import { isPrivateIp } from './ssrf-guard';
 
 export interface DataSourceHostPolicy {
@@ -32,17 +33,25 @@ export interface DataSourceHostPolicy {
   allowlist: string[];
 }
 
-/** True only for link-local / cloud-metadata ranges (always blocked). */
+/**
+ * True only for link-local / cloud-metadata ranges (169.254.0.0/16, fe80::/10) —
+ * ALWAYS blocked, independent of config/allowlist. Uses a real IP parser so that
+ * non-dotted encodings of the metadata address (e.g. `::ffff:a9fe:a9fe`, the
+ * IPv4-mapped form of 169.254.169.254) cannot slip past the invariant.
+ */
 export function isLinkLocalIp(ip: string): boolean {
-  if (isIP(ip) === 4) {
-    const p = ip.split('.').map(Number);
-    return p[0] === 169 && p[1] === 254; // 169.254.0.0/16 (EC2/GCP/Azure metadata)
+  let addr: ipaddr.IPv4 | ipaddr.IPv6;
+  try {
+    addr = ipaddr.parse(ip.replace(/^\[|\]$/g, ''));
+  } catch {
+    return false; // unparseable → not classified as link-local (still caught by isPrivateIp/fail-closed)
   }
-  const v = ip.toLowerCase().replace(/^\[|\]$/g, '');
-  if (v.startsWith('fe80')) return true; // IPv6 link-local
-  const mapped = v.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
-  if (mapped) return isLinkLocalIp(mapped[1]);
-  return false;
+  if (addr.kind() === 'ipv6') {
+    const v6 = addr as ipaddr.IPv6;
+    if (v6.isIPv4MappedAddress()) return v6.toIPv4Address().range() === 'linkLocal';
+    return v6.range() === 'linkLocal';
+  }
+  return (addr as ipaddr.IPv4).range() === 'linkLocal';
 }
 
 /** Host part of a `host[:port]` token, handling IPv6 literals `[::1]:5432`. */
@@ -147,7 +156,23 @@ export async function assertDataSourceTargetAllowed(
   connStr: string,
   policy: DataSourceHostPolicy,
 ): Promise<void> {
-  const hosts = hostsFromConnString(engine, connStr);
+  let hosts = hostsFromConnString(engine, connStr);
+
+  // `mongodb+srv://h/...` does NOT connect to `h`: the driver resolves the SRV record
+  // `_mongodb._tcp.h` and connects to the returned targets. Check THOSE, so a crafted
+  // +srv host whose SRV points at internal endpoints can't slip past the guard.
+  if (/^[a-z][a-z0-9+.-]*\+srv:\/\//i.test((connStr || '').trim())) {
+    const targets: string[] = [];
+    for (const h of hosts) {
+      try {
+        for (const rec of await resolveSrv(`_mongodb._tcp.${h}`)) targets.push(rec.name);
+      } catch {
+        throw new ForbiddenException(`DataSource SRV non risolvibile: ${h}`);
+      }
+    }
+    if (targets.length) hosts = targets;
+  }
+
   for (const host of hosts) {
     let ips: string[];
     if (isIP(host)) {

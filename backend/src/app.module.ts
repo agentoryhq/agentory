@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
+import { ThrottlerModule } from '@nestjs/throttler';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ServeStaticModule } from '@nestjs/serve-static';
 import { join } from 'path';
@@ -82,6 +83,11 @@ import { I18nModule, AcceptLanguageResolver, QueryResolver } from 'nestjs-i18n';
       loaderOptions: { path: join(__dirname, '/i18n/'), watch: true },
       resolvers: [new QueryResolver(['lang']), AcceptLanguageResolver],
     }),
+    // Rate limiting (global module). A lenient default; the auth routes apply a
+    // strict per-IP limit via @Throttle to blunt credential brute-force / spam.
+    // NOTE: in-memory store — for a multi-instance deployment behind a LB, back it
+    // with a shared store (e.g. Redis) so the limit is enforced across replicas.
+    ThrottlerModule.forRoot([{ ttl: 60_000, limit: 120 }]),
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],

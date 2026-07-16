@@ -30,7 +30,7 @@ import {z} from 'zod';
 import {McpServer} from './mcp-server.entity';
 import {McpServerSecret} from './mcp-server-secret.entity';
 import {decrypt, encrypt} from '../custom-tools/crypto.utils';
-import {assertPublicUrl} from '../common/ssrf-guard';
+import {safeFetch} from '../common/ssrf-guard';
 import {AuditService} from '../audit/audit.service';
 import {LocalMcpProcess} from './local-mcp-process';
 
@@ -484,15 +484,14 @@ export class McpServersService implements OnModuleDestroy {
    */
   private async fetchMcpTools(server: McpServer, secrets: Record<string, string>): Promise<McpTool[]> {
     const url = this.interpolate(server.url!, secrets);
-    await assertPublicUrl(url); // anti-SSRF: blocks EC2 metadata / internal IPs
     const headers = {
       'Content-Type': 'application/json',
       Accept: 'application/json, text/event-stream',
       ...this.interpolateHeaders(server.headers, secrets),
     };
 
-    // MCP initialize
-    const initResp = await fetch(url, {
+    // MCP initialize (safeFetch: anti-SSRF on the URL and every redirect hop)
+    const initResp = await safeFetch(url, {
       method: 'POST',
       headers,
       body: JSON.stringify({
@@ -513,7 +512,7 @@ export class McpServersService implements OnModuleDestroy {
     }
 
     // MCP tools/list
-    const listResp = await fetch(url, {
+    const listResp = await safeFetch(url, {
       method: 'POST',
       headers,
       body: JSON.stringify({
@@ -642,14 +641,14 @@ export class McpServersService implements OnModuleDestroy {
     toolArgs: Record<string, unknown>,
   ): Promise<string> {
     const url = this.interpolate(server.url!, secrets);
-    await assertPublicUrl(url); // anti-SSRF: blocks EC2 metadata / internal IPs
     const headers = {
       'Content-Type': 'application/json',
       Accept: 'application/json, text/event-stream',
       ...this.interpolateHeaders(server.headers, secrets),
     };
 
-    const resp = await fetch(url, {
+    // safeFetch: anti-SSRF on the URL and every redirect hop.
+    const resp = await safeFetch(url, {
       method: 'POST',
       headers,
       body: JSON.stringify({

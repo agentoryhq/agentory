@@ -1,6 +1,6 @@
-import { Controller, Get, Query, BadRequestException, UseGuards } from '@nestjs/common';
+import { Controller, Get, Query, Req, ForbiddenException, UseGuards } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
-import { InternalTokenGuard } from '../common/guards/internal-token.guard';
+import { InternalTokenGuard, internalUserId } from '../common/guards/internal-token.guard';
 import { FilesService } from './files.service';
 
 /**
@@ -19,11 +19,15 @@ export class InternalFilesController {
 
   @Get('search')
   async search(
-    @Query('userId') userId: string,
+    @Req() req: { internalAuth?: { sub?: string } },
     @Query('q') q?: string,
     @Query('limit') limit?: string,
   ) {
-    if (!userId) throw new BadRequestException('userId required');
+    // Identity comes from the signed run-token, NEVER from a caller-supplied param:
+    // a skill running as A must not read B's files by passing ?userId=B. Fail-closed
+    // for identity-less tokens (typ='system'). Mirrors the datasources/embed controllers.
+    const userId = internalUserId(req);
+    if (!userId) throw new ForbiddenException('Run without identity: file search denied.');
     const files = await this.files.searchReadable(userId, q ?? '', limit ? Number(limit) : 50);
     return files.map((f: any) => ({
       id:           f.id,

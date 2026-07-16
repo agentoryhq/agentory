@@ -256,8 +256,8 @@ export class SkillsController {
   @Get('project/:projectId')
   @ApiOperation({ summary: 'List the skills assigned to a project' })
   @ApiParam({ name: 'projectId', description: 'Project UUID' })
-  findByProject(@Param('projectId') projectId: string) {
-    return this.service.findByProject(projectId);
+  findByProject(@Param('projectId') projectId: string, @CurrentUser() user: any) {
+    return this.service.findByProject(projectId, user.id);
   }
 
   // ── Admin: pending review list ───────────────────────────────────────────
