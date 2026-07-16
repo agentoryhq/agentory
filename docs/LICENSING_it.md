@@ -27,7 +27,9 @@ utilizzo del software.
 
 I contributi sono benvenuti e vengono accettati sotto la **stessa licenza del progetto**
 (*inbound = outbound*): aprendo una Pull Request accetti che il tuo contributo sia
-licenziato sotto **AGPL-3.0**. Non è richiesto alcun CLA né alcuna firma separata.
+licenziato sotto **AGPL-3.0**. Nessun CLA e nessuna cessione di copyright. I contributi
+si certificano con un leggero sign-off [Developer Certificate of Origin](../DCO)
+(`git commit -s`) — vedi [CONTRIBUTING](../CONTRIBUTING.md).
 
 ---
 

@@ -213,7 +213,7 @@ Agentory usa un **modello a capability**: ogni potere (rete, filesystem, operazi
 
 ## Contribuire
 
-I contributi sono benvenuti! Vengono accettati sotto la licenza del progetto — **AGPL-3.0**, *inbound = outbound*: aprendo una Pull Request accetti di licenziare il tuo contributo sotto AGPL-3.0. Nessun CLA richiesto.
+I contributi sono benvenuti! Vengono accettati sotto la licenza del progetto — **AGPL-3.0**, *inbound = outbound*: aprendo una Pull Request accetti di licenziare il tuo contributo sotto AGPL-3.0. Nessun CLA — solo un leggero sign-off [DCO](DCO) (`git commit -s`). Vedi [CONTRIBUTING](CONTRIBUTING.md).
 
 ## Sostieni il progetto
 

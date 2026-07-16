@@ -12,6 +12,30 @@ contribution is licensed under AGPL-3.0-or-later, the same license as the projec
 There is no separate Contributor License Agreement and no copyright assignment —
 you keep the copyright to your work.
 
+## Sign your work (Developer Certificate of Origin)
+
+We use the [Developer Certificate of Origin](DCO) (DCO 1.1) — the same lightweight
+mechanism the Linux kernel uses. It is **not a CLA**: you assign no copyright and
+grant no special rights to anyone. You simply certify, per commit, that you wrote
+the change (or otherwise have the right to submit it) and that it may be distributed
+under the project's license.
+
+To certify a commit, add a `Signed-off-by` line by committing with `-s`:
+
+```bash
+git commit -s -m "fix(sandbox): ..."
+```
+
+which appends:
+
+```
+Signed-off-by: Jane Doe <jane@example.com>
+```
+
+The name and email must match your commit author identity. Forgot it? Amend the last
+commit with `git commit --amend -s`, or sign a whole branch with `git rebase --signoff master`.
+**Every commit in a pull request must carry the sign-off.**
+
 ## Ways to contribute
 
 - **Bug reports / feature requests** — open a [GitHub issue](../../issues). Search
@@ -76,10 +100,11 @@ cd frontend && npm run build
 ## Pull request checklist
 
 - [ ] Branched from `master`, focused scope
+- [ ] Every commit signed off (`git commit -s`) per the [DCO](DCO)
 - [ ] `typecheck`, tests and build pass locally
 - [ ] Comments/docs in English; UI strings translated (IT/EN) if applicable
 - [ ] New DB columns via a new migration (not by editing an old one)
 - [ ] No secrets, credentials, or `.env` files committed
 
-By submitting a pull request you confirm the contribution is your own work and may
-be distributed under AGPL-3.0-or-later.
+By signing off your commits you confirm, under the [DCO](DCO), that the contribution
+is yours to submit and may be distributed under AGPL-3.0-or-later.

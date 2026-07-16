@@ -213,7 +213,7 @@ Agentory uses a **capability model**: every power (network, filesystem, SQL oper
 
 ## Contributing
 
-Contributions are welcome! They are accepted under the project's license — **AGPL-3.0**, *inbound = outbound*: by opening a Pull Request you agree to license your contribution under AGPL-3.0. No CLA required.
+Contributions are welcome! They are accepted under the project's license — **AGPL-3.0**, *inbound = outbound*: by opening a Pull Request you agree to license your contribution under AGPL-3.0. No CLA — just a lightweight [DCO](DCO) sign-off (`git commit -s`). See [CONTRIBUTING](CONTRIBUTING.md).
 
 ## Support the project
 

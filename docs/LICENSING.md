@@ -26,7 +26,9 @@ As stated in **sections 15 and 16** of the AGPL-3.0, the software is provided
 
 Contributions are welcome and are accepted under the **same license as the project**
 (*inbound = outbound*): by opening a Pull Request you agree that your contribution is
-licensed under **AGPL-3.0**. No CLA and no separate signature are required.
+licensed under **AGPL-3.0**. No CLA and no copyright assignment. Contributions are
+certified with a lightweight [Developer Certificate of Origin](../DCO) sign-off
+(`git commit -s`) — see [CONTRIBUTING](../CONTRIBUTING.md).
 
 ---
 
