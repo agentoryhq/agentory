@@ -226,4 +226,4 @@ Agentory is free and open source under the **GNU AGPL-3.0** (see [LICENSE](LICEN
 - 🆓 Free to use, modify, and self-host — including as a network service (SaaS) — **provided you make the corresponding source code available under AGPL-3.0** (network copyleft, art. 13).
 - The software is provided **"AS IS", without warranty or liability** (AGPL-3.0 §15–16).
 
-All bundled dependencies are under permissive (MIT, ISC, BSD, Apache-2.0) or weak file-level copyleft (MPL-2.0, build tooling only) licenses — **no strong copyleft (GPL/LGPL) among the dependencies**. See [THIRD_PARTY_NOTICES.md](docs/THIRD_PARTY_NOTICES.md).
+Third-party dependencies are almost entirely **permissive** (MIT, ISC, BSD, Apache-2.0); the only third-party copyleft is `lightningcss` (**MPL-2.0**, build tooling, not shipped at runtime). **No third-party GPL/LGPL/AGPL.** (Agentory's own vendored, clean-room NTLM module is AGPL like the rest of the project — first-party, not a dependency.) See [THIRD_PARTY_NOTICES.md](docs/THIRD_PARTY_NOTICES.md).

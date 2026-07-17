@@ -10,10 +10,18 @@ The required attributions and license notices are listed below.
 
 ## License summary
 
-All distributed dependencies are under **permissive** licenses (MIT, ISC, BSD-2/3-Clause,
-Apache-2.0, and similar). **No copyleft (GPL/AGPL/LGPL/MPL)** is included in the
-distribution. Dual-licensed components (e.g. `jszip`, `oracledb`) are used under the
-permissive option (MIT and Apache-2.0 respectively).
+Nearly all third-party dependencies are under **permissive** licenses (MIT, ISC,
+BSD-2/3-Clause, Apache-2.0, and similar). The only third-party copyleft is
+`lightningcss` (**MPL-2.0**, a build-time CSS transformer; weak, file-level copyleft,
+not part of the runtime). **No third-party GPL/LGPL/AGPL** is included. Dual-licensed
+components (e.g. `jszip`, `oracledb`) are used under the permissive option (MIT and
+Apache-2.0 respectively).
+
+> Note: Agentory vendors its own **clean-room** NTLM implementation at
+> `backend/vendor/ntlm` (pure-JS MD4/DES, no OpenSSL-provider dependency). It carries
+> the package name `ntlm` and is licensed AGPL-3.0 like the rest of the project — it is
+> **first-party code**, not a third-party dependency, so a license scanner may report it
+> as an "AGPL dependency."
 
 | License family | Main obligation |
 |---|---|
